@@ -1,5 +1,6 @@
 {
   "io.github.vivienm.ChatGPT": {
+    "appid-url-not-reachable": "This independently hosted Flatpak uses ChatGPT as its application name. Its packaging repository is https://github.com/vivienm/chatgpt-flatpak, not the inferred https://github.com/vivienm/chatgpt; the real repository is declared in AppStream metadata.",
     "finish-args-own-name-org.freedesktop.StatusNotifierItem-2-1": "Chromium registers its tray item under this exact name (sandbox pid is always 2). Without owning it the DBus proxy rejects the registration and the tray icon never appears."
   }
 }
