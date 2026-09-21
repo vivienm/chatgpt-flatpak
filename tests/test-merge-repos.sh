@@ -22,14 +22,14 @@ for arch in x86_64 aarch64; do
     mkdir -p "$work/tree-$arch"
     echo "$arch" > "$work/tree-$arch/marker"
     ostree --repo="$work/src-$arch" commit \
-        --branch="app/io.github.rulin132.ChatGPT/$arch/master" \
+        --branch="app/io.github.vivienm.ChatGPT/$arch/master" \
         --subject=test "$work/tree-$arch" >/dev/null
 done
 
 "$SCRIPT" "$work/dest" "$work/src-x86_64" "$work/src-aarch64" >/dev/null
 refs=$(ostree --repo="$work/dest" refs | sort | tr '\n' ' ')
 check "both arch refs present" "$refs" \
-  "app/io.github.rulin132.ChatGPT/aarch64/master app/io.github.rulin132.ChatGPT/x86_64/master "
+  "app/io.github.vivienm.ChatGPT/aarch64/master app/io.github.vivienm.ChatGPT/x86_64/master "
 
 # A build job that produced nothing must fail the merge, not be silently dropped.
 ostree --repo="$work/empty" init --mode=archive-z2 >/dev/null

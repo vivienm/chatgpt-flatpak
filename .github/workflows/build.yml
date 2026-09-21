@@ -45,7 +45,7 @@ jobs:
         run: |
           flatpak-builder-lint --exceptions \
             --user-exceptions flatpak-builder-lint-exceptions.json \
-            manifest io.github.rulin132.ChatGPT.yaml
+            manifest io.github.vivienm.ChatGPT.yaml
 
   # No `needs:`. The smoke test is the only thing catching upstream layout
   # drift, and a style or naming problem must not be able to hide a broken
@@ -75,7 +75,7 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak-builder --user --install-deps-from=flathub --force-clean \
             --disable-rofiles-fuse --arch=${{ matrix.arch }} \
-            --repo=repo build io.github.rulin132.ChatGPT.yaml
+            --repo=repo build io.github.vivienm.ChatGPT.yaml
 
       # A real install is the only thing that exercises apply_extra, so assert
       # the payload arrived rather than trusting a zero exit. Runs on both
@@ -85,5 +85,5 @@ jobs:
         run: |
           set -euo pipefail
           flatpak remote-add --user --if-not-exists --no-gpg-verify chatgpt-ci "$PWD/repo"
-          flatpak install --user -y chatgpt-ci io.github.rulin132.ChatGPT
-          scripts/ci-smoke.sh io.github.rulin132.ChatGPT
+          flatpak install --user -y chatgpt-ci io.github.vivienm.ChatGPT
+          scripts/ci-smoke.sh io.github.vivienm.ChatGPT

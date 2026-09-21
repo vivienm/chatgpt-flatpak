@@ -1,5 +1,5 @@
 {
-  "io.github.rulin132.ChatGPT": {
+  "io.github.vivienm.ChatGPT": {
     "finish-args-own-name-org.freedesktop.StatusNotifierItem-2-1": "Chromium registers its tray item under this exact name (sandbox pid is always 2). Without owning it the DBus proxy rejects the registration and the tray icon never appears."
   }
 }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.rulin132.ChatGPT</id>
+  <id>io.github.vivienm.ChatGPT</id>
   <name>ChatGPT</name>
   <summary>ChatGPT, Work and Codex desktop app</summary>
 
@@ -30,16 +30,16 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">io.github.rulin132.ChatGPT.desktop</launchable>
+  <launchable type="desktop-id">io.github.vivienm.ChatGPT.desktop</launchable>
   <url type="homepage">https://openai.com/codex/</url>
   <url type="help">https://help.openai.com</url>
-  <url type="bugtracker">https://github.com/rulin132/chatgpt-flatpak/issues</url>
-  <url type="vcs-browser">https://github.com/rulin132/chatgpt-flatpak</url>
+  <url type="bugtracker">https://github.com/vivienm/chatgpt-flatpak/issues</url>
+  <url type="vcs-browser">https://github.com/vivienm/chatgpt-flatpak</url>
 
   <screenshots>
     <screenshot type="default">
       <caption>The Codex workspace view</caption>
-      <image>https://raw.githubusercontent.com/rulin132/chatgpt-flatpak/main/docs/screenshots/codex-home.png</image>
+      <image>https://raw.githubusercontent.com/vivienm/chatgpt-flatpak/main/docs/screenshots/codex-home.png</image>
     </screenshot>
   </screenshots>
 
