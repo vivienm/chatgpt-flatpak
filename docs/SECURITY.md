@@ -59,9 +59,9 @@ continues to use zypak unchanged.
 Grant the minimum you need, per directory:
 
 ```sh
-flatpak override --user --filesystem=~/code/thisproject io.github.rulin132.ChatGPT
-flatpak override --user --show io.github.rulin132.ChatGPT     # review
-flatpak override --user --reset io.github.rulin132.ChatGPT    # start over
+flatpak override --user --filesystem=~/code/thisproject io.github.vivienm.ChatGPT
+flatpak override --user --show io.github.vivienm.ChatGPT     # review
+flatpak override --user --reset io.github.vivienm.ChatGPT    # start over
 ```
 
 The trade is real: with a sealed sandbox the agent can only run commands against

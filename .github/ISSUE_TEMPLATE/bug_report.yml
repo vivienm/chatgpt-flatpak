@@ -50,7 +50,7 @@ body:
       description: Provide the smallest exact sequence of commands and actions that reproduces the problem.
       placeholder: |
         1. Run `flatpak update`.
-        2. Run `flatpak run io.github.rulin132.ChatGPT`.
+        2. Run `flatpak run io.github.vivienm.ChatGPT`.
         3. Observe ...
     validations:
       required: true
@@ -73,7 +73,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include distribution, desktop/session type, CPU architecture, GPU, and the output of `flatpak --version` and `flatpak info io.github.rulin132.ChatGPT`.
+      description: Include distribution, desktop/session type, CPU architecture, GPU, and the output of `flatpak --version` and `flatpak info io.github.vivienm.ChatGPT`.
       render: text
     validations:
       required: true
@@ -82,7 +82,7 @@ body:
     id: overrides
     attributes:
       label: Flatpak overrides
-      description: Paste the output of `flatpak override --user --show io.github.rulin132.ChatGPT`. Write "none" if empty.
+      description: Paste the output of `flatpak override --user --show io.github.vivienm.ChatGPT`. Write "none" if empty.
       render: text
     validations:
       required: true
@@ -91,7 +91,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: Paste the relevant portion of `flatpak run io.github.rulin132.ChatGPT 2>&1`. Redact sensitive information first.
+      description: Paste the relevant portion of `flatpak run io.github.vivienm.ChatGPT 2>&1`. Redact sensitive information first.
       render: text
 
   - type: textarea

@@ -1,4 +1,4 @@
-APP_ID   ?= io.github.rulin132.ChatGPT
+APP_ID   ?= io.github.vivienm.ChatGPT
 MANIFEST := $(APP_ID).yaml
 REPO     ?= repo
 BUILDDIR ?= build
@@ -43,6 +43,7 @@ rename:
 	      --exclude-dir=.flatpak-builder .); do \
 	    sed -i "s/io\.github\.$(CURRENT_USER)/io.github.$(GH_USER)/g; \
 	            s|github\.com/$(CURRENT_USER)|github.com/$(GH_USER)|g; \
+	            s|raw\.githubusercontent\.com/$(CURRENT_USER)|raw.githubusercontent.com/$(GH_USER)|g; \
 	            s|$(CURRENT_USER)\.github\.io|$(GH_USER).github.io|g; \
 	            s|ghcr\.io/$(CURRENT_USER)|ghcr.io/$(GH_USER)|g" "$$f"; \
 	  done; \

@@ -12,16 +12,16 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      # GitHub's recursion guard: nothing GITHUB_TOKEN does creates a workflow
-      # run. A PR opened with it gets zero checks, so with AUTO_UPDATE on it
-      # either waits forever on contexts that never report, or merges against
-      # no CI at all. A PAT in AUTOMATION_TOKEN is what makes build.yml run on
-      # the bot's PR. Checked before checkout so an unset secret is one clear
-      # message and not a confusing clone failure.
+      # Use a dedicated PAT so refresh PR checks run without manual approval
+      # and merging can trigger publication. Checked before checkout so an
+      # unset secret produces a clear message rather than a clone failure.
       - name: require an automation token
         env:
           AUTOMATION_TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
@@ -30,8 +30,8 @@ jobs:
           if [ -z "$AUTOMATION_TOKEN" ]; then
             echo "AUTOMATION_TOKEN is not set." >&2
             echo "Add a repository secret holding a personal access token with" >&2
-            echo "contents:write and pull-requests:write. GITHUB_TOKEN cannot be" >&2
-            echo "used here: PRs it opens never trigger any workflow." >&2
+            echo "contents:write and pull-requests:write. This pipeline needs" >&2
+            echo "a dedicated token for unattended checks and publication." >&2
             exit 1
           fi
 
@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           git config user.name  "update-bot"
           git config user.email "noreply@github.com"
-          ./scripts/refresh-source.sh io.github.rulin132.ChatGPT.yaml
+          ./scripts/refresh-source.sh io.github.vivienm.ChatGPT.yaml
 
       - name: open a PR if anything changed
         env:
@@ -56,7 +56,7 @@ jobs:
             exit 0
           fi
           ver=$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' \
-                build-aux/io.github.rulin132.ChatGPT.metainfo.xml | head -n1)
+                build-aux/io.github.vivienm.ChatGPT.metainfo.xml | head -n1)
           git checkout -B chore/upstream-refresh
           git commit -am "Re-pin upstream $ver"
           git push -f origin chore/upstream-refresh
@@ -70,7 +70,7 @@ jobs:
             --title "Re-pin upstream $ver" --label automated \
             --body "Upstream published $ver to their APT repository. The manifest now pins its versioned pool/ URLs, sha256 and size for both architectures, straight from the Packages index, and the AppStream release entry is updated to match.
 
-          Merging is not a rubber stamp. CI installs this payload for real on x86_64 and aarch64 and asserts it launches. If upstream moved app.asar or renamed the binary, those jobs fail and scripts/inspect-deb.sh says what changed."
+          CI installs this payload on x86_64 and aarch64 and verifies its layout and version. It does not test graphical startup. If upstream moved app.asar or renamed the binary, those jobs fail and scripts/inspect-deb.sh says what changed."
 
       # GitHub disables scheduled workflows after 60 days of repository
       # inactivity. A bot that silently stops is worse than no bot, and a
@@ -100,9 +100,8 @@ jobs:
           git commit -m "Keep the scheduled upstream check armed"
           git push origin chore/keepalive
 
-      # Gated on a repository variable so the pipeline can be stopped from the
-      # GitHub UI in seconds, with no commit and nothing to revert. Unset means
-      # off, so this ships disarmed.
+      # This gate controls automatic merging, not the scheduled PR check.
+      # Unset means off. Disable the workflow to stop scheduled checks too.
       - name: auto-merge when the gate is green
         if: vars.AUTO_UPDATE == 'on'
         env:

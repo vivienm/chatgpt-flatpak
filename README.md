@@ -23,15 +23,15 @@ the people it is not.
 ## Install
 
 ```sh
-flatpak remote-add --user chatgpt https://rulin132.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
-flatpak install --user chatgpt io.github.rulin132.ChatGPT
+flatpak remote-add --user chatgpt https://vivienm.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
+flatpak install --user chatgpt io.github.vivienm.ChatGPT
 ```
 
 The app starts with **no access to your files.** Grant a directory explicitly,
 for example your Desktop:
 
 ```sh
-flatpak override --user --filesystem=~/Desktop io.github.rulin132.ChatGPT
+flatpak override --user --filesystem=~/Desktop io.github.vivienm.ChatGPT
 ```
 
 ### Project access
@@ -42,7 +42,7 @@ permission. For example:
 ```sh
 flatpak override --user \
   --filesystem=~/code/my-project \
-  io.github.rulin132.ChatGPT
+  io.github.vivienm.ChatGPT
 ```
 
 Then open the project in the app using its stable path, such as
@@ -59,16 +59,16 @@ actually want the app to use). Revoke a project grant with:
 ```sh
 flatpak override --user \
   --nofilesystem=~/code/my-project \
-  io.github.rulin132.ChatGPT
+  io.github.vivienm.ChatGPT
 ```
 
-Also published as an OCI image at `ghcr.io/rulin132/chatgpt-flatpak`, for
+Also published as an OCI image at `ghcr.io/vivienm/chatgpt-flatpak`, for
 mirroring and offline installs. Fetch it with a registry client first: pointing
 flatpak straight at `docker://` returns 401, because it does not complete the
 anonymous token exchange GHCR requires, even though the package is public.
 
 ```sh
-skopeo copy docker://ghcr.io/rulin132/chatgpt-flatpak:latest oci:oci-chatgpt:latest
+skopeo copy docker://ghcr.io/vivienm/chatgpt-flatpak:latest oci:oci-chatgpt:latest
 flatpak install --user --image oci:oci-chatgpt:latest
 ```
 
@@ -103,7 +103,7 @@ hand X11 back. X11 is a shared server, where any client can read other clients'
 input and window contents.
 
 ```sh
-flatpak override --user --nosocket=x11 --nosocket=fallback-x11 io.github.rulin132.ChatGPT
+flatpak override --user --nosocket=x11 --nosocket=fallback-x11 io.github.vivienm.ChatGPT
 ```
 
 The app runs and authenticates normally with both denied. The cost is that on an
@@ -112,8 +112,8 @@ X11-only machine it will not start at all.
 Review or undo what you have granted:
 
 ```sh
-flatpak override --user --show io.github.rulin132.ChatGPT
-flatpak override --user --reset io.github.rulin132.ChatGPT
+flatpak override --user --show io.github.vivienm.ChatGPT
+flatpak override --user --reset io.github.vivienm.ChatGPT
 ```
 
 Read [docs/SECURITY.md](docs/SECURITY.md) before widening it, particularly the
@@ -149,8 +149,8 @@ None of this is optional, and nothing here is created for you.
   these produces a repo nobody can install system-wide.
 - `AUTOMATION_TOKEN`, a personal access token with `contents: write` and
   `pull-requests: write`. The nightly update check uses it instead of
-  `GITHUB_TOKEN` because GitHub does not start workflow runs for anything
-  `GITHUB_TOKEN` does: a PR opened with it arrives with zero checks. The
+  `GITHUB_TOKEN` so PR checks can run without manual approval and merging
+  can trigger the publication workflow. The
   workflow fails on the first step with a clear message if this is unset.
 
 **Settings**
@@ -170,8 +170,9 @@ None of this is optional, and nothing here is created for you.
 - Repository variable `AUTO_UPDATE`. Unset means off, which is how this ships.
   Set it to `on` to let the nightly refresh PR auto-merge once those four
   checks pass, and to let a manifest change on `main` publish a release. Unset
-  it to stop the whole pipeline from the GitHub UI in seconds, with no commit
-  and nothing to revert.
+  it to stop automatic merging and publication on manifest changes. Scheduled
+  checks still open PRs, and manual/tag releases remain available. Disable the
+  `update-check` workflow to stop scheduled checks entirely.
 
 ### The nightly refresh
 
@@ -191,7 +192,7 @@ of inactivity.
 To start it at login:
 
 ```sh
-cp ~/.local/share/flatpak/exports/share/applications/io.github.rulin132.ChatGPT.desktop ~/.config/autostart/
+cp ~/.local/share/flatpak/exports/share/applications/io.github.vivienm.ChatGPT.desktop ~/.config/autostart/
 ```
 
 It opens with its window. Starting minimized to the tray would need a flag from
@@ -204,7 +205,7 @@ the app itself, which upstream has not added.
 If something misbehaves, capture the log first:
 
 ```sh
-flatpak run io.github.rulin132.ChatGPT 2>&1 | tee /tmp/chatgpt.log
+flatpak run io.github.vivienm.ChatGPT 2>&1 | tee /tmp/chatgpt.log
 ```
 
 **Codex Security scan registration is separate from command execution.** Start
@@ -235,15 +236,15 @@ routes ANGLE at the bundled SwiftShader instead.
 ## Uninstalling
 
 ```sh
-flatpak uninstall --user io.github.rulin132.ChatGPT
+flatpak uninstall --user io.github.vivienm.ChatGPT
 ```
 
 That keeps your data and the cached Codex runtime in
-`~/.var/app/io.github.rulin132.ChatGPT`, which runs to several GB. To remove
+`~/.var/app/io.github.vivienm.ChatGPT`, which runs to several GB. To remove
 that as well:
 
 ```sh
-flatpak uninstall --user --delete-data io.github.rulin132.ChatGPT
+flatpak uninstall --user --delete-data io.github.vivienm.ChatGPT
 ```
 
 ## Legal

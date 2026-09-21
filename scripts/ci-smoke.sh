@@ -14,7 +14,7 @@
 # are still real (apply_extra actually unpacked a real payload, not just a
 # zero exit). The launch check is still valid to run locally, where the
 # session isn't root:
-#   flatpak run --nosocket=session-bus io.github.rulin132.ChatGPT
+#   flatpak run --nosocket=session-bus io.github.vivienm.ChatGPT
 # Reaching "window ready-to-show" in its output is the signal.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ echo "apply_extra reported upstream version: $version"
 # The amd64 and arm64 URLs rotate independently, so both arches passing an
 # empty-or-unknown check still allows them to be pinned at different upstream
 # versions. Compare against the AppStream release each job was built from.
-metainfo=$(dirname "$0")/../build-aux/io.github.rulin132.ChatGPT.metainfo.xml
+metainfo=$(dirname "$0")/../build-aux/io.github.vivienm.ChatGPT.metainfo.xml
 [ -f "$metainfo" ] || { echo "cannot find $metainfo"; exit 1; }
 want=$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' "$metainfo" | head -n1)
 [ -n "$want" ] || { echo "no <release version> in $metainfo"; exit 1; }

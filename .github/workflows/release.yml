@@ -9,7 +9,7 @@ on:
     tags: ['v*']
     branches: [main]
     paths:
-      - 'io.github.rulin132.ChatGPT.yaml'
+      - 'io.github.vivienm.ChatGPT.yaml'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak-builder --user --install-deps-from=flathub --force-clean \
             --disable-rofiles-fuse --arch=${{ matrix.arch }} \
-            --repo=repo build io.github.rulin132.ChatGPT.yaml
+            --repo=repo build io.github.vivienm.ChatGPT.yaml
 
       # Same gate as build.yml. A release must not publish bytes that were never
       # installed, which is how the tag path used to work.
@@ -59,8 +59,8 @@ jobs:
         run: |
           set -euo pipefail
           flatpak remote-add --user --if-not-exists --no-gpg-verify chatgpt-rel "$PWD/repo"
-          flatpak install --user -y chatgpt-rel io.github.rulin132.ChatGPT
-          scripts/ci-smoke.sh io.github.rulin132.ChatGPT
+          flatpak install --user -y chatgpt-rel io.github.vivienm.ChatGPT
+          scripts/ci-smoke.sh io.github.vivienm.ChatGPT
 
       # Tarred, not uploaded as a directory tree. upload-artifact walks files
       # and so drops empty directories, but an OSTree repo carries five that
@@ -96,7 +96,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          ver=$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' build-aux/io.github.rulin132.ChatGPT.metainfo.xml | head -n1)
+          ver=$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' build-aux/io.github.vivienm.ChatGPT.metainfo.xml | head -n1)
           [[ "$ver" =~ ^[0-9][-0-9A-Za-z.+:~]{0,127}$ ]] || {
             echo "invalid metainfo version" >&2; exit 1; }
           printf 'v=%s\n' "$ver" >> "$GITHUB_OUTPUT"
@@ -166,7 +166,7 @@ jobs:
       - name: assemble Pages site
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-          PAGES_URL: https://rulin132.github.io/chatgpt-flatpak
+          PAGES_URL: https://vivienm.github.io/chatgpt-flatpak
           BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: ./scripts/publish-pages.sh
 
@@ -208,7 +208,7 @@ jobs:
         run: |
           set -euo pipefail
           flatpak build-bundle --oci --oci-layer-compress=zstd \
-            repo oci-image io.github.rulin132.ChatGPT
+            repo oci-image io.github.vivienm.ChatGPT
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -230,8 +230,8 @@ jobs:
             Packaging build for upstream ChatGPT ${{ steps.ver.outputs.v }}.
 
             Install:
-                flatpak remote-add --user chatgpt https://rulin132.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
-                flatpak install --user chatgpt io.github.rulin132.ChatGPT
+                flatpak remote-add --user chatgpt https://vivienm.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
+                flatpak install --user chatgpt io.github.vivienm.ChatGPT
 
   # Plain ubuntu-latest, not the flatpak container, because that container has no
   # registry client and no package manager to install one. Runs after publish, so
@@ -295,8 +295,8 @@ jobs:
 
       - name: install from the published remote
         env:
-          REPO_URL: https://rulin132.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
-          STAMP_URL: https://rulin132.github.io/chatgpt-flatpak/build-id
+          REPO_URL: https://vivienm.github.io/chatgpt-flatpak/chatgpt.flatpakrepo
+          STAMP_URL: https://vivienm.github.io/chatgpt-flatpak/build-id
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -320,6 +320,6 @@ jobs:
             https://flathub.org/repo/flathub.flatpakrepo
           flatpak remote-add --user chatgpt "$REPO_URL"
           # No --no-gpg-verify. That omission is the whole point of this job.
-          flatpak install --user -y chatgpt io.github.rulin132.ChatGPT
-          scripts/ci-smoke.sh io.github.rulin132.ChatGPT
+          flatpak install --user -y chatgpt io.github.vivienm.ChatGPT
+          scripts/ci-smoke.sh io.github.vivienm.ChatGPT
           echo "verified: installs from the published remote with GPG on"
