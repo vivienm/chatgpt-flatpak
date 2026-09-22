@@ -54,7 +54,34 @@ continues to use zypak unchanged.
 | `--filesystem=host` / `=home` | the app sees no user files until you say so |
 | `--talk-name=org.freedesktop.Flatpak` | this permits `flatpak-spawn --host`, i.e. arbitrary command execution outside the sandbox. Flathub treats it as an exception-requiring rule. VS Code holds it, plus `--filesystem=host` and `--allow=devel`, which is why a flatpak'd VS Code is not meaningfully confined |
 | `--device=all` | `--device=dri` covers GPU without handing over every USB device |
-| `--socket=x11` | `--socket=fallback-x11` gives X11 only when there is no Wayland session. XWayland is a shared server: a client with X11 access can observe other X11 clients' windows and input. See the avatar-overlay note in the README before granting it to work around a rendering bug |
+| `--socket=x11` / `--socket=fallback-x11` | Neither is granted. The launcher requires native Wayland, so X11-only sessions are unsupported. Network-shared abstract sockets remain a separate limitation, described below. |
+| `--share=ipc` | Not granted: native Wayland does not need the host IPC namespace used for X11 shared memory. |
+
+**Local credential storage.** The launcher selects `--password-store=basic`.
+Neither `org.freedesktop.secrets` nor `org.kde.kwalletd5` / `org.kde.kwalletd6`
+is granted. This intentionally prioritizes isolating the host's other secrets
+from the application and its commands. Direct Secret Service access is not
+limited to this application's items; GNOME Keyring permits access to unlocked
+secrets by applications with access to the service. See the
+[GNOME Keyring security FAQ](https://wiki.gnome.org/Projects/GnomeKeyring/SecurityFAQ).
+
+Electron's basic backend does not provide meaningful application-level
+encryption; treat stored credentials as plaintext even if their file format is
+encoded or encrypted with a hardcoded key. See
+[Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+The app's private data remains under `~/.var/app/io.github.vivienm.ChatGPT/`.
+Full-disk encryption protects this data while the volume is locked, not while
+the session is running, and does not automatically protect exported files or
+backups. Processes that can read this data can recover locally stored secrets.
+This may include credentials for connected services, not only the ChatGPT login.
+
+Changing from a keyring-backed installation may require signing in again. This
+package does not migrate or delete existing keyring entries. The flag selects
+Electron's backend; it does not rewrite independent credential handling in
+bundled components. Validate login and persistence after upgrading.
+
+Audio playback and microphone access (`--socket=pulseaudio`) are intentionally
+retained, as is the Codex command-sandbox bypass described above.
 
 Grant the minimum you need, per directory:
 

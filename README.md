@@ -96,18 +96,22 @@ tools, and allowed D-Bus services. They cannot read arbitrary host files or run
 host commands. Chromium renderer isolation under zypak is unchanged. See
 [docs/SECURITY.md](docs/SECURITY.md) for the full tradeoff.
 
-Go further and deny X11 outright. `--socket=fallback-x11` only grants X11 when
-there is no Wayland, so on a Wayland session it is already unused; denying it
-means an X11 session, or a change in how the launcher picks its backend, cannot
-hand X11 back. X11 is a shared server, where any client can read other clients'
-input and window contents.
+This fork requires **Wayland**. The launcher selects native Wayland explicitly;
+the package denies both X11 sockets and the host IPC namespace. An X11-only
+session is unsupported. Existing user overrides can still widen permissions.
+Network access remains enabled, including access to host abstract Unix sockets;
+removing the X11 socket grants does not isolate those endpoints. See
+[docs/SECURITY.md](docs/SECURITY.md) for this limitation.
 
-```sh
-flatpak override --user --nosocket=x11 --nosocket=fallback-x11 io.github.vivienm.ChatGPT
-```
-
-The app runs and authenticates normally with both denied. The cost is that on an
-X11-only machine it will not start at all.
+Credential storage uses Electron's **local `basic` backend**. No direct access
+to Secret Service / GNOME Keyring or KWallet is granted. This reduces exposure
+of the host's other secrets, but credentials in the app's private data must be
+treated as plaintext. Disk encryption protects them while the volume is locked;
+it does not protect a copy of those files or an unencrypted backup. Switching
+from a keyring-backed installation may require signing in again; existing
+keyring entries are not migrated or deleted by this package. See
+[docs/SECURITY.md](docs/SECURITY.md) for the tradeoff. Audio, including the
+microphone, remains available through PulseAudio.
 
 Review or undo what you have granted:
 

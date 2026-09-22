@@ -20,6 +20,11 @@ set -euo pipefail
 
 app_id="${1:?usage: ci-smoke.sh <app-id>}"
 
+# Check the built package so permissions inherited from the runtime/base app
+# cannot silently widen the manifest's policy. Runs on both architectures.
+flatpak info --show-metadata "$app_id" |
+    "$(dirname "$0")/check-sandbox-permissions.sh"
+
 version=$(flatpak run --command=cat "$app_id" /app/extra/VERSION)
 echo "apply_extra reported upstream version: $version"
 [ -n "$version" ] || { echo "VERSION is empty"; exit 1; }

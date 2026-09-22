@@ -50,8 +50,12 @@ if [ -x "$PRIMARY_RUNTIME_FALLBACK_BIN/git" ]; then
     export PATH="$PRIMARY_RUNTIME_FALLBACK_BIN:$PATH"
 fi
 
+# Require native Wayland: this package does not expose an X11 socket.
 # --enable-wayland-ime is what fixes IME input on Fedora/GNOME Wayland.
-set -- --ozone-platform-hint=auto --enable-wayland-ime "$@"
+# Use local credential storage without access to the host keyring. The basic
+# backend provides no meaningful encryption at the application layer; see
+# docs/SECURITY.md for the disk encryption and backup tradeoffs.
+set -- --ozone-platform=wayland --enable-wayland-ime --password-store=basic "$@"
 
 # CHATGPT_DISABLE_GPU=1 renders in software (see docs/SECURITY.md).
 # Deliberately not --disable-gpu: that leaves no rasteriser and opens no window

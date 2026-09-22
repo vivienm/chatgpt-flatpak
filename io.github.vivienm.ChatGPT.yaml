@@ -22,16 +22,14 @@ tags:
 finish-args:
   # zypak's spawn strategy needs expose-pids/SpawnStarted (flatpak >= 1.8.2).
   - --require-version=1.8.2
-  - --share=ipc
+  # Wayland only: no X11 sockets or host IPC sharing.
+  # The install smoke test checks the final permissions, including inheritance.
   - --share=network
   - --socket=wayland
-  - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
-  # Credential storage via Secret Service / KWallet.
-  - --talk-name=org.freedesktop.secrets
-  - --talk-name=org.kde.kwalletd5
-  - --talk-name=org.kde.kwalletd6
+  # Local credential storage: no direct Secret Service or KWallet access.
+  # The launcher selects password-store=basic; see docs/SECURITY.md.
   # Tray icon (StatusNotifierItem only; GNOME additionally needs a shell ext).
   - --talk-name=org.kde.StatusNotifierWatcher
   # Chromium owns this exact name for its tray item (sandbox pid is always 2).
