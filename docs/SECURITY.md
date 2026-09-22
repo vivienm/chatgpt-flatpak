@@ -57,18 +57,28 @@ continues to use zypak unchanged.
 | `--socket=x11` / `--socket=fallback-x11` | Neither is granted. The launcher requires native Wayland, so X11-only sessions are unsupported. Network-shared abstract sockets remain a separate limitation, described below. |
 | `--share=ipc` | Not granted: native Wayland does not need the host IPC namespace used for X11 shared memory. |
 
-**Credential service.** Only `org.freedesktop.secrets` is allowed for credential
-storage. The launcher explicitly selects Electron's `gnome-libsecret` backend,
-matching this fork's GNOME Keyring setup. Direct access to `org.kde.kwalletd5`
-and `org.kde.kwalletd6` is not granted. This narrows the reachable services; it
-does not restrict Secret Service access to this application's own items.
-Access control and unlocking remain the provider's responsibility.
+**Local credential storage.** The launcher selects `--password-store=basic`.
+Neither `org.freedesktop.secrets` nor `org.kde.kwalletd5` / `org.kde.kwalletd6`
+is granted. This intentionally prioritizes isolating the host's other secrets
+from the application and its commands. Direct Secret Service access is not
+limited to this application's items; GNOME Keyring permits access to unlocked
+secrets by applications with access to the service. See the
+[GNOME Keyring security FAQ](https://wiki.gnome.org/Projects/GnomeKeyring/SecurityFAQ).
 
-Keep a working Secret Service provider: removing all keyring access or choosing
-`--password-store=basic` can leave Electron storage without meaningful encryption.
-See [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
-Changing from a previous KWallet-backed installation requires checking credential
-migration or signing in again; do not delete the old wallet to troubleshoot it.
+Electron's basic backend does not provide meaningful application-level
+encryption; treat stored credentials as plaintext even if their file format is
+encoded or encrypted with a hardcoded key. See
+[Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+The app's private data remains under `~/.var/app/io.github.vivienm.ChatGPT/`.
+Full-disk encryption protects this data while the volume is locked, not while
+the session is running, and does not automatically protect exported files or
+backups. Processes that can read this data can recover locally stored secrets.
+This may include credentials for connected services, not only the ChatGPT login.
+
+Changing from a keyring-backed installation may require signing in again. This
+package does not migrate or delete existing keyring entries. The flag selects
+Electron's backend; it does not rewrite independent credential handling in
+bundled components. Validate login and persistence after upgrading.
 
 Audio playback and microphone access (`--socket=pulseaudio`) are intentionally
 retained, as is the Codex command-sandbox bypass described above.

@@ -74,9 +74,9 @@ check "no nvidia: execs the app" \
 # Even in an X11-labelled session, never select the automatic/X11 backend.
 # Keep desktop arguments intact alongside the Wayland and IME switches.
 XDG_SESSION_TYPE=x11 DISPLAY=:99 run_launcher "$root" 'chatgpt://test'
-check "Wayland and Secret Service: explicit backends, IME and desktop URL" \
+check "Wayland and local storage: explicit backends, IME and desktop URL" \
     "$(sed -n 's/^ZYPAK_EXEC //p' "$out")" \
-    "/fake/ChatGPT --ozone-platform=wayland --enable-wayland-ime --password-store=gnome-libsecret chatgpt://test"
+    "/fake/ChatGPT --ozone-platform=wayland --enable-wayland-ime --password-store=basic chatgpt://test"
 
 # Chromium creates SingletonSocket below TMPDIR. A cache-based TMPDIR can make
 # this path exceed Linux's 107-character Unix-socket pathname limit.

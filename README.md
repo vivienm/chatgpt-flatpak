@@ -103,10 +103,14 @@ Network access remains enabled, including access to host abstract Unix sockets;
 removing the X11 socket grants does not isolate those endpoints. See
 [docs/SECURITY.md](docs/SECURITY.md) for this limitation.
 
-Credential storage uses **Secret Service / GNOME Keyring** through Electron's
-`gnome-libsecret` backend. Direct KWallet 5/6 access is not granted. A working
-Secret Service provider is required for keyring-backed storage; the launcher
-does not request the unprotected `basic` password store. Audio, including the
+Credential storage uses Electron's **local `basic` backend**. No direct access
+to Secret Service / GNOME Keyring or KWallet is granted. This reduces exposure
+of the host's other secrets, but credentials in the app's private data must be
+treated as plaintext. Disk encryption protects them while the volume is locked;
+it does not protect a copy of those files or an unencrypted backup. Switching
+from a keyring-backed installation may require signing in again; existing
+keyring entries are not migrated or deleted by this package. See
+[docs/SECURITY.md](docs/SECURITY.md) for the tradeoff. Audio, including the
 microphone, remains available through PulseAudio.
 
 Review or undo what you have granted:

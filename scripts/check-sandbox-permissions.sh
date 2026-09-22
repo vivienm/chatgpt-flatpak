@@ -38,7 +38,6 @@ expected=$(LC_ALL=C sort <<'EOF'
 [Context] devices=dri
 [Context] persistent=.codex
 [Context] persistent=.cache
-[Session Bus Policy] org.freedesktop.secrets=talk
 [Session Bus Policy] org.kde.StatusNotifierWatcher=talk
 [Session Bus Policy] org.freedesktop.StatusNotifierItem-2-1=own
 EOF
@@ -49,4 +48,4 @@ if ! diff -u --label expected --label actual \
     echo "Unexpected sandbox permissions" >&2
     exit 1
 fi
-echo "sandbox permissions OK: Wayland, private IPC, Secret Service only"
+echo "sandbox permissions OK: Wayland, private IPC, no direct host keyring access"

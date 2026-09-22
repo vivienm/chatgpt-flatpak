@@ -15,7 +15,6 @@ sockets=wayland;pulseaudio;!x11;!fallback-x11;
 devices=dri;
 persistent=.codex;.cache;
 [Session Bus Policy]
-org.freedesktop.secrets=talk
 org.kde.StatusNotifierWatcher=talk
 org.freedesktop.StatusNotifierItem-2-1=own
 EOF
@@ -43,14 +42,12 @@ fixture | sed 's/^shared=.*/shared=network;ipc;/' | reject 'shared IPC'
 fixture | sed '/^devices=/a filesystems=home;' | reject 'home access'
 fixture | sed 's/^devices=.*/devices=all;/' | reject 'all devices'
 pass=$((pass + 3))
-for service in org.kde.kwalletd5 org.kde.kwalletd6 org.freedesktop.Flatpak; do
+for service in org.freedesktop.secrets org.kde.kwalletd5 org.kde.kwalletd6 org.freedesktop.Flatpak; do
     { fixture; printf '%s=talk\n' "$service"; } | reject "$service"
     pass=$((pass + 1))
 done
-fixture | sed 's/org.freedesktop.secrets=talk/org.freedesktop.secrets=none/' |
-    reject 'missing Secret Service'
 { fixture; printf '[System Bus Policy]\norg.example.Service=talk\n'; } |
     reject 'system bus access'
 printf '' | reject 'empty metadata'
-pass=$((pass + 3))
+pass=$((pass + 2))
 echo "sandbox permissions: $pass passed"

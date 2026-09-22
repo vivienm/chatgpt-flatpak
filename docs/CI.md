@@ -12,7 +12,8 @@ required checks on `main`. Runner upgrades must not change those check names.
 
 The installation smoke test also checks the built package's permission allowlist
 on both architectures, including permissions inherited from its runtime. X11,
-host IPC sharing, KWallet and broad filesystem/device/bus access must not return.
+host IPC sharing, Secret Service, KWallet and broad filesystem/device/bus access
+must not return.
 `finish-args-only-wayland` is an intentional linter exception: this personal fork
 requires Wayland, unlike Flathub's general compatibility recommendation.
 
