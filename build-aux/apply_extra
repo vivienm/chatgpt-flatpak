@@ -118,7 +118,23 @@ TERMINAL_ROUTE_PATCHER=/app/libexec/chatgpt-flatpak/patch-terminal-route.js
 "$NODE" "$TERMINAL_ROUTE_PATCHER" app/resources/app.asar \
     || die "failed to patch client-local-thread terminal routing"
 
-# --- 9. in-app updater ------------------------------------------------------
+# --- 9. enable outbound remote control -------------------------------------
+# The native Linux device-key addon requires a TPM, unavailable in this
+# sandbox. Keep the upstream signing/validation wrapper and supply its raw-byte
+# API from a local software key store. Keys are created only during explicit
+# authorization, in private persistent app data (see docs/SECURITY.md).
+REMOTE_CONTROL_PATCHER=/app/libexec/chatgpt-flatpak/patch-remote-control.js
+DEVICE_KEY_PROVIDER=/app/libexec/chatgpt-flatpak/flatpak-device-key.cjs
+[ -f "$REMOTE_CONTROL_PATCHER" ] || die "$REMOTE_CONTROL_PATCHER missing"
+[ -f "$DEVICE_KEY_PROVIDER" ] || die "$DEVICE_KEY_PROVIDER missing"
+[ -f app/resources/native/remote-control-device-key.node ] \
+    || die "native device-key addon missing, upstream payload layout changed"
+cp "$DEVICE_KEY_PROVIDER" app/resources/native/flatpak-device-key.cjs \
+    || die "failed to install the software device-key provider"
+"$NODE" "$REMOTE_CONTROL_PATCHER" app/resources/app.asar \
+    || die "failed to patch outbound remote control"
+
+# --- 10. in-app updater -----------------------------------------------------
 # Nothing to neuter. Checked against 26.810.50856: it logs enableUpdater=true
 # but never writes to /app, and ships no Squirrel or AppImage updater.
 #

@@ -51,6 +51,12 @@ flatpak run --command=sh "$app_id" -c '
   test -x "$APP_BIN" || { echo "APP_BIN not executable: $APP_BIN"; exit 1; }
   head -c4 "$APP_BIN" | grep -q ELF || { echo "APP_BIN is not an ELF binary"; exit 1; }
   test -f /app/extra/app/resources/app.asar || { echo "no app.asar"; exit 1; }
+  test -f /app/extra/app/resources/native/flatpak-device-key.cjs || {
+    echo "software device-key provider missing"; exit 1;
+  }
+  /app/extra/app/resources/cua_node/bin/node \
+    /app/libexec/chatgpt-flatpak/patch-remote-control.js --verify \
+    /app/extra/app/resources/app.asar
   test -x /app/extra/app/resources/codex || { echo "Codex wrapper missing"; exit 1; }
   grep -Fq -- "--dangerously-bypass-approvals-and-sandbox" /app/extra/app/resources/codex || {
     echo "Codex wrapper does not bypass its unavailable inner sandbox"

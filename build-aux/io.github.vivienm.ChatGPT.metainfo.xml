@@ -28,6 +28,11 @@
       host command execution. Grant directories explicitly with
       <code>flatpak override</code>.
     </p>
+    <p>
+      This fork also exposes experimental control of other enrolled devices
+      from Linux. Controller identity uses extractable software keys stored
+      in the app's private data; account authorization is still required.
+    </p>
   </description>
 
   <launchable type="desktop-id">io.github.vivienm.ChatGPT.desktop</launchable>

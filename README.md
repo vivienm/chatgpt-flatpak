@@ -123,6 +123,43 @@ flatpak override --user --reset io.github.vivienm.ChatGPT
 Read [docs/SECURITY.md](docs/SECURITY.md) before widening it, particularly the
 part about why this is not a trust boundary you should put client work behind.
 
+## Control other devices (experimental)
+
+This fork enables **Settings → Connections → Control other devices** on Linux.
+Authorize this installation, complete any account verification, and select an
+already enrolled Mac or Windows device signed in to the same ChatGPT account
+and workspace. Keep that device awake and online. Availability and workspace
+policy still apply; see the [official Remote guide](https://learn.chatgpt.com/docs/remote-connections).
+
+The install-time patch opens the Connections UI and outbound catalog gates and
+replaces the TPM-dependent Linux device-key addon with a software ECDSA P-256
+provider. This follows the outbound-control approach in
+[codex-desktop-linux](https://github.com/ilysenko/codex-desktop-linux/tree/49d5bc1c38aba9d25c1c798c1fffad8918390ae1/linux-features/remote-mobile-control),
+adapted to this fork's local credential storage. It preserves the upstream
+payload validation, authentication, pairing and server access checks.
+
+Keys are created when you authorize the app, with `0600` permissions in a `0700`
+directory under
+`~/.var/app/io.github.vivienm.ChatGPT/config/chatgpt-flatpak-device-keys/`.
+They are **extractable software keys**, without TPM or keyring protection.
+Commands running inside this Flatpak can read them. Revoke the controller in
+the remote device/account settings before deleting its local keys; deleting a
+key alone does not revoke access server-side. See [the security details](docs/SECURITY.md#remote-control-identity).
+
+This change is scoped to outbound control. It hides the local host setup tab,
+does not start a remote-control daemon or enable this Linux machine as a host,
+and requires no new Flatpak permissions. Commands on a connected device follow
+**that device's** permissions;
+this Flatpak does not confine the remote machine. Native Chrome integration on
+this Linux machine remains a separate feature.
+
+To try a local build, run `make deps`, `make install`, then `make run`.
+Patching is checked against both pinned architectures by CI and fails the
+installation if upstream changes the expected bundles. It is an experimental
+adaptation, not official Linux Remote support. A successful package build does
+not validate account enrollment or an end-to-end connection; test authorization,
+a remote task, reconnection after restart and revocation with your devices.
+
 ## Chrome integration
 
 **The browser controller / Chrome extension native transport is unsupported in this Flatpak package, including when Chrome is also installed as a Flatpak.** Installing the Chrome extension does not enable this connection. The extension may report `Native transport disconnected`, while the desktop app shows Chrome as "Not installed" even when the extension is installed.
