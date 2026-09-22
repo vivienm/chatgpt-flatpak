@@ -54,7 +54,24 @@ continues to use zypak unchanged.
 | `--filesystem=host` / `=home` | the app sees no user files until you say so |
 | `--talk-name=org.freedesktop.Flatpak` | this permits `flatpak-spawn --host`, i.e. arbitrary command execution outside the sandbox. Flathub treats it as an exception-requiring rule. VS Code holds it, plus `--filesystem=host` and `--allow=devel`, which is why a flatpak'd VS Code is not meaningfully confined |
 | `--device=all` | `--device=dri` covers GPU without handing over every USB device |
-| `--socket=x11` | `--socket=fallback-x11` gives X11 only when there is no Wayland session. XWayland is a shared server: a client with X11 access can observe other X11 clients' windows and input. See the avatar-overlay note in the README before granting it to work around a rendering bug |
+| `--socket=x11` / `--socket=fallback-x11` | Both are explicitly denied. The launcher requires native Wayland, so X11-only sessions are unsupported. Network-shared abstract sockets remain a separate limitation, described below. |
+| `--share=ipc` | Explicitly denied: native Wayland does not need the host IPC namespace used for X11 shared memory. |
+
+**Credential service.** Only `org.freedesktop.secrets` is allowed for credential
+storage. The launcher explicitly selects Electron's `gnome-libsecret` backend,
+matching this fork's GNOME Keyring setup. Direct access to `org.kde.kwalletd5`
+and `org.kde.kwalletd6` is not granted. This narrows the reachable services; it
+does not restrict Secret Service access to this application's own items.
+Access control and unlocking remain the provider's responsibility.
+
+Keep a working Secret Service provider: removing all keyring access or choosing
+`--password-store=basic` can leave Electron storage without meaningful encryption.
+See [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+Changing from a previous KWallet-backed installation requires checking credential
+migration or signing in again; do not delete the old wallet to troubleshoot it.
+
+Audio playback and microphone access (`--socket=pulseaudio`) are intentionally
+retained, as is the Codex command-sandbox bypass described above.
 
 Grant the minimum you need, per directory:
 

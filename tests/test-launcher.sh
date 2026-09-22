@@ -40,7 +40,8 @@ mkroot() {  # mkroot <name>; prints the root path
 run_launcher() {  # run_launcher <root>; stdout to $out, stderr to $err, rc set
     err=$work/err; out=$work/out; copy=$work/launcher-copy.sh
     sed "s|^PREFIX=\$|PREFIX=$1|" "$LAUNCHER" > "$copy"
-    XDG_CACHE_HOME=$work/cache XDG_RUNTIME_DIR=$work/runtime sh "$copy" >"$out" 2>"$err" && rc=0 || rc=$?
+    shift
+    XDG_CACHE_HOME=$work/cache XDG_RUNTIME_DIR=$work/runtime sh "$copy" "$@" >"$out" 2>"$err" && rc=0 || rc=$?
 }
 
 # NVIDIA node without a mounted GL/nvidia-* dir is the driver/extension
@@ -69,6 +70,13 @@ run_launcher "$root"
 check "no nvidia: no warning" "$(wc -c < "$err")" "0"
 check "no nvidia: execs the app" \
     "$(grep -c '^ZYPAK_EXEC /fake/ChatGPT' "$out")" "1"
+
+# Even in an X11-labelled session, never select the automatic/X11 backend.
+# Keep desktop arguments intact alongside the Wayland and IME switches.
+XDG_SESSION_TYPE=x11 DISPLAY=:99 run_launcher "$root" 'chatgpt://test'
+check "Wayland and Secret Service: explicit backends, IME and desktop URL" \
+    "$(sed -n 's/^ZYPAK_EXEC //p' "$out")" \
+    "/fake/ChatGPT --ozone-platform=wayland --enable-wayland-ime --password-store=gnome-libsecret chatgpt://test"
 
 # Chromium creates SingletonSocket below TMPDIR. A cache-based TMPDIR can make
 # this path exceed Linux's 107-character Unix-socket pathname limit.
