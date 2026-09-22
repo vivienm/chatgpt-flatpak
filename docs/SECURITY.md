@@ -96,6 +96,39 @@ the tools inside the runtime, not your host toolchain. If you widen it to
 `--talk-name=org.freedesktop.Flatpak` to get host execution back, you have
 opted out of the sandbox. Do that knowingly, not by copying a snippet.
 
+## Remote-control identity
+
+Outbound control uses a software ECDSA P-256 key in the Flatpak's persistent
+private config directory. The official Linux addon in 26.915.31945 uses a TPM;
+this package does not grant access to `/dev/tpmrm0`. Instead, the install-time
+patch redirects that addon's filename to `flatpak-device-key.cjs`. The original
+wrapper still validates and canonicalizes enrollment/connection payloads and
+adds the `codex-device-key-sign-payload/v1` domain before signing. Backend
+availability, account/workspace access, authentication and pairing are retained.
+
+The provider accepts only the caller's `allow_os_protected_nonextractable`
+policy and rejects `hardware_only`. For compatibility with the existing
+software-provider approach, it returns the protocol label
+`os_protected_nonextractable`. **That label does not describe the actual
+protection here:** the key is a plaintext PKCS#8 PEM, extractable by the user,
+host processes with access to app data, and commands running inside the app.
+It provides neither TPM-backed non-extractability nor OS keyring isolation.
+This limitation is consistent with this fork's explicit local `basic` storage
+choice, but the identity can authorize access to other computers as well.
+
+Each key has its own exclusive-created UUID-named file (`0600`) in a private
+directory (`0700`). Reading checks ownership, permissions, regular-file type,
+link count, bounded size and key algorithm; symlink key files/directories are
+rejected. Keys persist across updates and restarts. Removing local key files
+does not revoke server-side authorization: revoke the controller using the
+remote device/account settings first. Do not copy these keys into shared or
+unencrypted backups.
+
+No TPM, host execution, keyring or additional filesystem permissions are
+granted. This patch does not enable inbound control or start a host daemon.
+The Flatpak boundary only protects this local installation: actions on a remote
+host execute with that host's credentials, tools, approvals and sandbox policy.
+
 ## Chrome native messaging
 
 The browser controller / Chrome extension native transport is unsupported in this Flatpak package, including when Chrome itself runs as a Flatpak. The extension may report `Native transport disconnected`, and the desktop app may show Chrome as "Not installed" even when the extension is installed. These symptoms do not mean broader Flatpak permissions are needed.
