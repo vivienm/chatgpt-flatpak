@@ -22,12 +22,10 @@ tags:
 finish-args:
   # zypak's spawn strategy needs expose-pids/SpawnStarted (flatpak >= 1.8.2).
   - --require-version=1.8.2
-  # Wayland only; deny inherited X11/IPC permissions as well.
-  - --unshare=ipc
+  # Wayland only: no X11 sockets or host IPC sharing.
+  # The install smoke test checks the final permissions, including inheritance.
   - --share=network
   - --socket=wayland
-  - --nosocket=x11
-  - --nosocket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
   # Credential storage via Secret Service (GNOME Keyring).

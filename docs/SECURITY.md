@@ -54,8 +54,8 @@ continues to use zypak unchanged.
 | `--filesystem=host` / `=home` | the app sees no user files until you say so |
 | `--talk-name=org.freedesktop.Flatpak` | this permits `flatpak-spawn --host`, i.e. arbitrary command execution outside the sandbox. Flathub treats it as an exception-requiring rule. VS Code holds it, plus `--filesystem=host` and `--allow=devel`, which is why a flatpak'd VS Code is not meaningfully confined |
 | `--device=all` | `--device=dri` covers GPU without handing over every USB device |
-| `--socket=x11` / `--socket=fallback-x11` | Both are explicitly denied. The launcher requires native Wayland, so X11-only sessions are unsupported. Network-shared abstract sockets remain a separate limitation, described below. |
-| `--share=ipc` | Explicitly denied: native Wayland does not need the host IPC namespace used for X11 shared memory. |
+| `--socket=x11` / `--socket=fallback-x11` | Neither is granted. The launcher requires native Wayland, so X11-only sessions are unsupported. Network-shared abstract sockets remain a separate limitation, described below. |
+| `--share=ipc` | Not granted: native Wayland does not need the host IPC namespace used for X11 shared memory. |
 
 **Credential service.** Only `org.freedesktop.secrets` is allowed for credential
 storage. The launcher explicitly selects Electron's `gnome-libsecret` backend,

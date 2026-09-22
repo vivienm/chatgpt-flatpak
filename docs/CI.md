@@ -10,6 +10,12 @@ Build check names depend only on the architecture: `build (x86_64)` and
 `build (aarch64)`. Together with `shellcheck` and `lint`, these are the four
 required checks on `main`. Runner upgrades must not change those check names.
 
+The installation smoke test also checks the built package's permission allowlist
+on both architectures, including permissions inherited from its runtime. X11,
+host IPC sharing, KWallet and broad filesystem/device/bus access must not return.
+`finish-args-only-wayland` is an intentional linter exception: this personal fork
+requires Wayland, unlike Flathub's general compatibility recommendation.
+
 ## Remaining warnings reviewed on September 22, 2026
 
 - `runtime-update-available-to-org.freedesktop.Platform-26.08`: this is a
