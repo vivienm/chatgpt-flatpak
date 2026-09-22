@@ -87,6 +87,9 @@ or permission changes explicitly. Screenshots are useful for visible changes;
 terminal output is more useful for installation and launch failures.
 
 All four protected checks must pass: `shellcheck`, `lint`,
-`build (x86_64, ubuntu-latest)`, and
-`build (aarch64, ubuntu-24.04-arm)`. Review feedback may ask for a smaller
+`build (x86_64)`, and
+`build (aarch64)`. Review feedback may ask for a smaller
 change, more test coverage, or clearer documentation before merge.
+
+See [CI environments and upstream warnings](docs/CI.md) for the runner version
+policy and the remaining warnings in third-party dependencies.

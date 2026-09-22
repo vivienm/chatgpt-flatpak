@@ -17,7 +17,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Use a dedicated PAT so refresh PR checks run without manual approval
       # and merging can trigger publication. Checked before checkout so an
