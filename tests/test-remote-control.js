@@ -12,6 +12,9 @@ const patcher = path.resolve(__dirname, "../build-aux/patch-remote-control.js");
 const mainPath = ".vite/build/main-test.js";
 const initialPath = "webview/assets/app-initial-test.js";
 const settingsPath = "webview/assets/remote-connections-settings-test.js";
+const visibilityPath = "webview/assets/remote-control-connections-visibility-test.js";
+const visibilitySource = "function visible({remoteControlConnectionsState:e,slingshotEnabled:t})" +
+  "{return t&&(e?.available??!0)&&e?.accessRequired!==!0}";
 const fixture = {
   [mainPath]: "const text='café 中文 😀';const addon=`remote-control-device-key.node`;" +
     "const notes=['Remote control device keys require resourcesPath'," +
@@ -25,12 +28,18 @@ const fixture = {
     "function load(){return check(`1042620455`)}" +
     "function bridge(){const enabled=check(`1042620455`)||pairing;" +
     "return send(`set-remote-control-connections-enabled`,{enabled})}" +
-    "function visible({remoteControlConnectionsState:e,slingshotEnabled:t})" +
-    "{return t&&(e?.available??!0)&&e?.accessRequired!==!0}",
+    visibilitySource,
   [settingsPath]: "function settings(){let p=check(`782640499`),K=!p,de=v==null;return K}" +
     "function tabs(){let G=true,K=true,Re=G&&!0,ze=K&&(G||!1),Be=G&&!0,last;" +
     "return {showControlThisMacTab:Re,showControlOtherDevices:ze,showSsh:Be}}",
   "untouched.txt": "Do not modify unrelated bytes.",
+};
+const visibilityImport = 'import{visible}from"./remote-control-connections-visibility-test.js";';
+const splitFixture = {
+  ...fixture,
+  [initialPath]: fixture[initialPath].replace(visibilitySource, ""),
+  [settingsPath]: visibilityImport + fixture[settingsPath],
+  [visibilityPath]: visibilitySource,
 };
 
 function hash(bytes) { return crypto.createHash("sha256").update(bytes).digest("hex"); }
@@ -90,11 +99,11 @@ function readAsar(filename) {
 
 function run(...args) { return spawnSync(process.execPath, [patcher, ...args], { encoding: "utf8" }); }
 
-test("ASAR patch: behavior, integrity, offsets, idempotence and fail-before-write", () => {
+function testLayout(layout, sources) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-patch-test-"));
   const archive = path.join(root, "app.asar");
   try {
-    makeAsar(archive);
+    makeAsar(archive, sources);
     const original = fs.readFileSync(archive);
     assert.equal(run("--check", archive).status, 0);
     assert.notEqual(run("--verify", archive).status, 0);
@@ -109,26 +118,33 @@ test("ASAR patch: behavior, integrity, offsets, idempotence and fail-before-writ
       assert.equal(after[name].size, before[name].size);
     }
     assert.deepEqual(after["untouched.txt"], before["untouched.txt"]);
+    if (layout === "split") assert.deepEqual(after[visibilityPath], before[visibilityPath]);
     assert.ok(after[mainPath].text.includes("flatpak-device-key.cjs"));
 
     for (const patched of [false, true]) {
       const files = patched ? after : before;
       const context = vm.createContext({ get: () => false, check: () => false,
         flag: {}, pairing: false, send: (_method, params) => params.enabled, v: [] });
-      vm.runInContext(files[initialPath].text + files[settingsPath].text, context);
-      assert.equal(vm.runInContext("nav() && list() && load() && bridge()", context), patched);
+      vm.runInContext(files[initialPath].text + (files[visibilityPath]?.text ?? "") +
+        files[settingsPath].text.replace(visibilityImport, ""), context);
+      for (const call of ["nav()", "list()", "load()", "bridge()"]) {
+        assert.equal(vm.runInContext(call, context), patched, call);
+      }
       // A rollout hiding the outbound tab should no longer hide it.
       context.check = () => true;
       assert.equal(vm.runInContext("settings()", context), patched);
       assert.equal(vm.runInContext("tabs().showControlThisMacTab", context), !patched);
       assert.equal(vm.runInContext("tabs().showControlOtherDevices && tabs().showSsh", context), true);
       for (const [state, expected] of [
+        [undefined, true],
+        [{}, true],
         [{ available: true, accessRequired: false }, true],
         [{ available: false, accessRequired: false }, false],
         [{ available: true, accessRequired: true }, false],
       ]) {
         context.state = state;
         assert.equal(vm.runInContext("visible({remoteControlConnectionsState:state,slingshotEnabled:true})", context), expected);
+        assert.equal(vm.runInContext("visible({remoteControlConnectionsState:state,slingshotEnabled:false})", context), false);
       }
     }
     const patched = fs.readFileSync(archive);
@@ -137,18 +153,18 @@ test("ASAR patch: behavior, integrity, offsets, idempotence and fail-before-writ
     assert.deepEqual(fs.readFileSync(archive), patched);
 
     const cases = [
-      { ...fixture, [settingsPath]: "upstream changed" },
-      { ...fixture, [initialPath]: fixture[initialPath].replace("1042620455", "9999999999") },
-      { ...fixture, ".vite/build/main-duplicate.js": fixture[mainPath] },
-      { ...fixture, [mainPath]: fixture[mainPath].replace("connection audience", "changed audience") },
+      { ...sources, [settingsPath]: "upstream changed" },
+      { ...sources, [initialPath]: sources[initialPath].replace("1042620455", "9999999999") },
+      { ...sources, ".vite/build/main-duplicate.js": sources[mainPath] },
+      { ...sources, [mainPath]: sources[mainPath].replace("connection audience", "changed audience") },
     ];
-    for (const sources of cases) {
-      makeAsar(archive, sources);
+    for (const invalidSources of cases) {
+      makeAsar(archive, invalidSources);
       const bytes = fs.readFileSync(archive);
       assert.notEqual(run(archive).status, 0);
       assert.deepEqual(fs.readFileSync(archive), bytes);
     }
-    makeAsar(archive, fixture, header => {
+    makeAsar(archive, sources, header => {
       header.files.webview.files.assets.files["remote-connections-settings-test.js"].integrity.hash = "0".repeat(64);
     });
     const invalid = fs.readFileSync(archive);
@@ -156,6 +172,56 @@ test("ASAR patch: behavior, integrity, offsets, idempotence and fail-before-writ
     assert.deepEqual(fs.readFileSync(archive), invalid);
     fs.writeFileSync(archive, original.subarray(0, 15));
     assert.match(run(archive).stderr, /truncated ASAR/);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+}
+
+for (const [layout, sources] of [["inline", fixture], ["split", splitFixture]]) {
+  test(`ASAR patch (${layout} visibility): behavior, integrity, offsets, idempotence and fail-before-write`,
+    () => testLayout(layout, sources));
+}
+
+test("visibility drift or an ambiguous/missing bundle fails before any ASAR write", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-visibility-test-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    for (const sources of [fixture, splitFixture]) {
+      const ownerPath = sources === fixture ? initialPath : visibilityPath;
+      for (const [before, after] of [
+        ["?.available??!0", "?.available??!1"],
+        ["?.accessRequired!==!0", "?.accessRequired===!0"],
+        ["return t&&", "return !0&&"],
+        [visibilitySource, visibilitySource + visibilitySource],
+        [visibilitySource, ""],
+      ]) {
+        makeAsar(archive, { ...sources, [ownerPath]: sources[ownerPath].replace(before, after) });
+        const original = fs.readFileSync(archive);
+        for (const mode of [[], ["--check"], ["--verify"]]) {
+          assert.notEqual(run(...mode, archive).status, 0, `${ownerPath}: ${before}`);
+          assert.deepEqual(fs.readFileSync(archive), original);
+        }
+      }
+    }
+    const { [visibilityPath]: removed, ...missingVisibility } = splitFixture;
+    const cases = [
+      missingVisibility,
+      { ...splitFixture, [initialPath]: fixture[initialPath] },
+      { ...splitFixture, [settingsPath]: fixture[settingsPath] },
+      { ...splitFixture, "webview/assets/remote-control-connections-visibility-duplicate.js": removed },
+    ];
+    for (const sources of cases) {
+      makeAsar(archive, sources);
+      const original = fs.readFileSync(archive);
+      assert.notEqual(run(archive).status, 0);
+      assert.deepEqual(fs.readFileSync(archive), original);
+    }
+    makeAsar(archive, splitFixture, header => {
+      header.files.webview.files.assets.files[visibilityPath.split("/").at(-1)].integrity.hash = "0".repeat(64);
+    });
+    const original = fs.readFileSync(archive);
+    assert.match(run(archive).stderr, /integrity mismatch/);
+    assert.deepEqual(fs.readFileSync(archive), original);
   } finally {
     fs.rmSync(root, { force: true, recursive: true });
   }

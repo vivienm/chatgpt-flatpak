@@ -17,6 +17,16 @@ must not return.
 `finish-args-only-wayland` is an intentional linter exception: this personal fork
 requires Wayland, unlike Flathub's general compatibility recommendation.
 
+## Remote-control bundle layout
+
+Upstream 26.924.50649 moved the visibility function from `app-initial-*.js`
+into `remote-control-connections-visibility-*.js`. The remote-control patch
+accepts either layout, checks the availability/access conditions and ASAR
+integrity, and leaves that function unchanged. Missing, duplicate or changed
+visibility functions abort installation before any remote-control patch is
+written. Both layouts are covered by `tests/test-remote-control.sh`; CI also
+installs the actual pinned payload on each architecture.
+
 ## Remaining warnings reviewed on September 22, 2026
 
 - `runtime-update-available-to-org.freedesktop.Platform-26.08`: this is a
