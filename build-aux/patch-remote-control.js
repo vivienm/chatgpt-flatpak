@@ -2,8 +2,8 @@
 "use strict";
 
 // Outbound control only, inspired by ilysenko/codex-desktop-linux (see README).
-// Upstream 26.915.31945: expose Connections, load the remote catalog, show the
-// outbound tab, and substitute the TPM addon with our private software store.
+// Expose Connections, load the remote catalog, show the outbound tab, and
+// substitute the TPM addon with our private software store.
 // Keep authentication, backend availability/access checks, payload validation,
 // pairing, host enablement and SSH execution unchanged. Every replacement has
 // the same byte length; validate all changes before writing anything to ASAR.
@@ -28,7 +28,20 @@ function gate(source, id, marker, count) {
   return source.replace(pattern, before => padded(before, marker));
 }
 
-function patchSource(kind, source) {
+function visibilityOwners(source) {
+  return [...source.matchAll(/function [A-Za-z_$][\w$]*\(\{remoteControlConnectionsState:([A-Za-z_$][\w$]*),slingshotEnabled:([A-Za-z_$][\w$]*)\}\)\{([^{}]*)\}/g)];
+}
+
+function validateVisibility(source) {
+  const owners = visibilityOwners(source);
+  if (owners.length !== 1) fail("expected exactly one remote-control visibility function");
+  const [, state, enabled, body] = owners[0];
+  if (body !== `return ${enabled}&&(${state}?.available??!0)&&${state}?.accessRequired!==!0`) {
+    fail("remote-control visibility contract changed");
+  }
+}
+
+function patchSource(kind, source, splitVisibility) {
   if (kind === "main") {
     // Keep the wrapper's signedPayloadBase64 and canonical payload validation.
     for (const anchor of [
@@ -52,16 +65,27 @@ function patchSource(kind, source) {
     for (const anchor of [
       "[remote-connections/gate-bridge]",
       "set-remote-control-connections-enabled",
-      "slingshotEnabled:",
-      "?.available??!0)&&",
-      "?.accessRequired!==!0",
     ]) {
       if (!source.includes(anchor)) fail(`remote catalog contract changed: ${anchor}`);
+    }
+    if (splitVisibility) {
+      if (visibilityOwners(source).length) fail("ambiguous remote-control visibility layout");
+    } else {
+      validateVisibility(source);
     }
     source = gate(source, "4114442250", "!0/*fp-nav*/", 2);
     // Both the loader hook and the enablement bridge must agree; changing
     // visibility alone leaves the main process with an empty catalog.
     return gate(source, "1042620455", "!0/*fp-rc*/", 2);
+  }
+  if (kind === "visibility") {
+    // 26.924.50649 extracted this function from app-initial. Validate its
+    // backend availability/access checks without modifying any of its bytes.
+    validateVisibility(source);
+    return source;
+  }
+  if (splitVisibility && !source.includes(`from"./${splitVisibility}"`)) {
+    fail("settings no longer imports the remote-control visibility bundle");
   }
   const owners = [...source.matchAll(/([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\(`782640499`\)/g)];
   if (owners.length !== 1) fail("outbound tab gate owner changed");
@@ -120,6 +144,11 @@ function run() {
       ["initial", /^webview\/assets\/app-initial-[^/]+\.js$/],
       ["settings", /^webview\/assets\/remote-connections-settings-[^/]+\.js$/],
     ];
+    const visibilityPattern = /^webview\/assets\/remote-control-connections-visibility-[^/]+\.js$/;
+    const visibility = files.filter(file => visibilityPattern.test(file.path));
+    if (visibility.length > 1) fail("expected at most one remote-control visibility bundle");
+    const splitVisibility = visibility[0]?.path.split("/").at(-1);
+    if (splitVisibility) targets.push(["visibility", visibilityPattern]);
     const writes = [];
     for (const [kind, pattern] of targets) {
       const matches = files.filter(file => pattern.test(file.path));
@@ -131,7 +160,7 @@ function run() {
         fail(`unsupported entry: ${path}`);
       }
       const original = read(fd, entry.size, position);
-      const contents = Buffer.from(patchSource(kind, original.toString("utf8")));
+      const contents = Buffer.from(patchSource(kind, original.toString("utf8"), splitVisibility));
       if (contents.length !== original.length) fail(`rewrite changed size: ${path}`);
       const integrity = entry.integrity;
       if (integrity?.algorithm !== "SHA256" || !Number.isSafeInteger(integrity.blockSize) ||
