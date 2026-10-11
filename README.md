@@ -1,5 +1,11 @@
 # ChatGPT / Codex Desktop Flatpak
 
+This is a fork of [rulin132/chatgpt-flatpak](https://github.com/rulin132/chatgpt-flatpak).
+The experimental outbound Remote adaptation follows
+[ilysenko/codex-desktop-linux](https://github.com/ilysenko/codex-desktop-linux).
+Third-party packaging notices and the original Remote reference are preserved
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 This repo packages the **official** ChatGPT / Codex Linux build as a Flatpak
 that starts with no access to your files, and gives it back one directory at a
 time. Codex executes code. This exists so the thing running commands cannot
