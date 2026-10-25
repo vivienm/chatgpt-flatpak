@@ -27,6 +27,53 @@ visibility functions abort installation before any remote-control patch is
 written. Both layouts are covered by `tests/test-remote-control.sh`; CI also
 installs the actual pinned payload on each architecture.
 
+Upstream 26.1021.22027 also moved the enablement bridge from `app-initial`
+to `app-runtime` and replaced `set-remote-control-connections-enabled` IPC
+with `remoteConnections.setRemoteControlEnabled`. This caused the October 24
+build and release failures on both architectures: `remote catalog contract
+changed: [remote-connections/gate-bridge]`. The patcher now resolves a unique
+bridge owner across the old and new bundles, validates the service call and
+patches only its Remote rollout gate. Loading guards, one-to-one pairing,
+backend availability/access checks and the native signing wrapper are retained.
+Tests cover both bridge layouts, unchanged unrelated gates, idempotence,
+integrity failures and rejection before any archive writes.
+
+## Upstream review on October 25, 2026
+
+| Source | Reviewed revision | Result |
+| --- | --- | --- |
+| [rulin132/chatgpt-flatpak](https://github.com/rulin132/chatgpt-flatpak) | [`f89bb5417bb03918d2b27c997d822d48f487bedb`](https://github.com/rulin132/chatgpt-flatpak/commit/f89bb5417bb03918d2b27c997d822d48f487bedb) | Since the shared ancestor `7b0c76f`, only application pins and AppStream releases changed. Both architectures now use its current `26.1021.22027` payload, verified against OpenAI's APT indexes. |
+| [ilysenko/codex-desktop-linux](https://github.com/ilysenko/codex-desktop-linux) | [`e84fe858fd62bf59678025402384519e0017c0f9`](https://github.com/ilysenko/codex-desktop-linux/commit/e84fe858fd62bf59678025402384519e0017c0f9) | Reviewed the current outbound loader, visibility, enablement and device-key contracts, including the [26.1021 repair](https://github.com/ilysenko/codex-desktop-linux/commit/d73e1453ee0b47aafe0eb90ee3866cf187c4dc19). The local Flatpak adaptation now handles the service bridge in `app-runtime`. |
+
+These are source references, not interchangeable package dependencies. The
+Flatpak fork retains its own app ID, Wayland policy, local credential storage
+and outbound-only Remote scope. The broader Linux hosting, daemon and keychain
+framework from `codex-desktop-linux` is not imported. Its latest startup-config
+fix concerns injected `--remote-control` / `app-server proxy` arguments;
+this Flatpak adaptation does not inject those arguments. The original Remote
+reference and MIT notice remain in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
+To refresh again, fetch `upstream`, compare packaging changes, run `make hashes`,
+review the outbound Remote contracts at a specific `codex-desktop-linux`
+revision, and record it here. CI must install both real architecture payloads;
+synthetic bundle tests alone cannot detect every vendor layout change.
+
+The October 24 refresh [PR #26](https://github.com/vivienm/chatgpt-flatpak/pull/26)
+merged at 04:27:28 UTC, before either architecture completed its installation
+check. The API audit found neither classic protection nor effective rules on
+`main`. `scripts/check-auto-merge.sh` now refuses to arm auto-merge unless
+classic branch protection requires `shellcheck`, `lint`, `build (x86_64)` and
+`build (aarch64)`. API errors also refuse merging. The PR remains available for
+review when protection is missing; this guard does not change GitHub settings.
+
+Validation: all shell test entrypoints and ShellCheck pass; manifest lint has
+no errors (the existing 26.08 runtime advisory remains). Both vendor packages
+match their pinned sizes and SHA-256 hashes. Terminal and Remote patches apply
+to both real ASARs and verify their resulting integrity hashes. An x86_64
+Flatpak build, isolated installation with `apply_extra`, and `ci-smoke.sh` pass.
+ARM64 installation/runtime checks remain for CI. An enrolled Remote session
+and graphical startup were not tested by these checks.
+
 ## Remaining warnings reviewed on September 22, 2026
 
 - `runtime-update-available-to-org.freedesktop.Platform-26.08`: this is a

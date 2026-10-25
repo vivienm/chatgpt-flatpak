@@ -13,8 +13,11 @@ const mainPath = ".vite/build/main-test.js";
 const initialPath = "webview/assets/app-initial-test.js";
 const settingsPath = "webview/assets/remote-connections-settings-test.js";
 const visibilityPath = "webview/assets/remote-control-connections-visibility-test.js";
+const runtimePath = "webview/assets/app-runtime-test.js";
 const visibilitySource = "function visible({remoteControlConnectionsState:e,slingshotEnabled:t})" +
   "{return t&&(e?.available??!0)&&e?.accessRequired!==!0}";
+const legacyBridge = "function bridge(){const enabled=check(`1042620455`)||pairing;" +
+  "return send(`set-remote-control-connections-enabled`,{enabled})}";
 const fixture = {
   [mainPath]: "const text='café 中文 😀';const addon=`remote-control-device-key.node`;" +
     "const notes=['Remote control device keys require resourcesPath'," +
@@ -26,8 +29,7 @@ const fixture = {
     "function nav(){return get(flag,`4114442250`)}" +
     "function list(){return get(flag,`4114442250`)}" +
     "function load(){return check(`1042620455`)}" +
-    "function bridge(){const enabled=check(`1042620455`)||pairing;" +
-    "return send(`set-remote-control-connections-enabled`,{enabled})}" +
+    legacyBridge +
     visibilitySource,
   [settingsPath]: "function settings(){let p=check(`782640499`),K=!p,de=v==null;return K}" +
     "function tabs(){let G=true,K=true,Re=G&&!0,ze=K&&(G||!1),Be=G&&!0,last;" +
@@ -40,6 +42,21 @@ const splitFixture = {
   [initialPath]: fixture[initialPath].replace(visibilitySource, ""),
   [settingsPath]: visibilityImport + fixture[settingsPath],
   [visibilityPath]: visibilitySource,
+};
+// 26.1021 moved the compiled enablement effect into app-runtime. Keep its
+// loading guard, service call, pairing gate and dependency list observable.
+const serviceBridge = "function bridge(){let e=cache(10),{checkGate:t,isLoading:n}=rollout(),r;" +
+  "e[0]===t?r=e[1]:(r=t(pairingGate),e[0]=t,e[1]=r);let i=r,a;" +
+  "e[2]!==t||e[3]!==i?(a=t(`1042620455`)||i,e[2]=t,e[3]=i,e[4]=a):a=e[4];" +
+  "let o=a,s,c;return e[5]!==n||e[6]!==i||e[7]!==o?(s=()=>{let e=B.remoteConnections;" +
+  "n||e==null||e.setRemoteControlEnabled({enabled:o,oneToOnePairingInAppEnabled:i})" +
+  ".catch(e=>{log(`[remote-connections/gate-bridge] sync_failed`,e)})},c=[n,i,o]," +
+  "e[5]=n,e[6]=i,e[7]=o,e[8]=s,e[9]=c):(s=e[8],c=e[9]),effect(s,c),null}";
+const serviceFixture = {
+  ...splitFixture,
+  [initialPath]: splitFixture[initialPath].replace("const log='[remote-connections/gate-bridge]';", "")
+    .replace(legacyBridge, ""),
+  [runtimePath]: serviceBridge + "function unrelated(){return check(`1042620455`)}",
 };
 
 function hash(bytes) { return crypto.createHash("sha256").update(bytes).digest("hex"); }
@@ -118,17 +135,45 @@ function testLayout(layout, sources) {
       assert.equal(after[name].size, before[name].size);
     }
     assert.deepEqual(after["untouched.txt"], before["untouched.txt"]);
-    if (layout === "split") assert.deepEqual(after[visibilityPath], before[visibilityPath]);
+    if (layout !== "inline") assert.deepEqual(after[visibilityPath], before[visibilityPath]);
     assert.ok(after[mainPath].text.includes("flatpak-device-key.cjs"));
 
     for (const patched of [false, true]) {
       const files = patched ? after : before;
       const context = vm.createContext({ get: () => false, check: () => false,
         flag: {}, pairing: false, send: (_method, params) => params.enabled, v: [] });
+      context.cache = () => [];
+      context.pairingGate = "pairing";
+      context.rollout = () => ({ checkGate: id => id === "pairing" ? context.pairing : context.check(id), isLoading: context.loading });
+      context.effect = fn => fn();
+      context.B = { remoteConnections: { setRemoteControlEnabled: params => {
+        context.bridgeResult = params;
+        return { catch() {} };
+      } } };
       vm.runInContext(files[initialPath].text + (files[visibilityPath]?.text ?? "") +
+        (files[runtimePath]?.text ?? "") +
         files[settingsPath].text.replace(visibilityImport, ""), context);
-      for (const call of ["nav()", "list()", "load()", "bridge()"]) {
+      const calls = ["nav()", "list()", "load()"];
+      if (layout !== "service") calls.push("bridge()");
+      for (const call of calls) {
         assert.equal(vm.runInContext(call, context), patched, call);
+      }
+      if (layout === "service") {
+        for (const pairing of [false, true]) {
+          context.pairing = pairing;
+          vm.runInContext("bridge()", context);
+          assert.equal(context.bridgeResult.enabled, patched || pairing);
+          assert.equal(context.bridgeResult.oneToOnePairingInAppEnabled, pairing);
+        }
+        context.bridgeResult = undefined;
+        context.loading = true;
+        vm.runInContext("bridge()", context);
+        assert.equal(context.bridgeResult, undefined);
+        context.loading = false;
+        context.B.remoteConnections = null;
+        vm.runInContext("bridge()", context);
+        assert.equal(context.bridgeResult, undefined);
+        assert.equal(vm.runInContext("unrelated()", context), false);
       }
       // A rollout hiding the outbound tab should no longer hide it.
       context.check = () => true;
@@ -177,10 +222,46 @@ function testLayout(layout, sources) {
   }
 }
 
-for (const [layout, sources] of [["inline", fixture], ["split", splitFixture]]) {
+for (const [layout, sources] of [["inline", fixture], ["split", splitFixture], ["service", serviceFixture]]) {
   test(`ASAR patch (${layout} visibility): behavior, integrity, offsets, idempotence and fail-before-write`,
     () => testLayout(layout, sources));
 }
+
+test("service bridge drift, ambiguity and integrity errors fail before writing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-bridge-test-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    const { [runtimePath]: removed, ...missingBridge } = serviceFixture;
+    const cases = [
+      missingBridge,
+      { ...serviceFixture, [initialPath]: splitFixture[initialPath] },
+      { ...serviceFixture, "webview/assets/app-runtime-duplicate.js": removed },
+      ...[
+        ["setRemoteControlEnabled", "differentMethod"],
+        ["oneToOnePairingInAppEnabled:i", "oneToOnePairingInAppEnabled:!0"],
+        ["n||e==null||", "e==null||"],
+        ["1042620455", "9999999999"],
+        ["[remote-connections/gate-bridge]", "changed-marker"],
+      ].map(([before, after]) => ({ ...serviceFixture, [runtimePath]: removed.replace(before, after) })),
+    ];
+    for (const sources of cases) {
+      makeAsar(archive, sources);
+      const original = fs.readFileSync(archive);
+      for (const mode of [[], ["--check"], ["--verify"]]) {
+        assert.notEqual(run(...mode, archive).status, 0);
+        assert.deepEqual(fs.readFileSync(archive), original);
+      }
+    }
+    makeAsar(archive, serviceFixture, header => {
+      header.files.webview.files.assets.files["app-runtime-test.js"].integrity.hash = "0".repeat(64);
+    });
+    const original = fs.readFileSync(archive);
+    assert.match(run(archive).stderr, /integrity mismatch/);
+    assert.deepEqual(fs.readFileSync(archive), original);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
 
 test("visibility drift or an ambiguous/missing bundle fails before any ASAR write", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-visibility-test-"));

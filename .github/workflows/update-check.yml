@@ -123,5 +123,6 @@ jobs:
           [ -n "${num:-}" ] || { echo "no open refresh PR"; exit 0; }
           [ "$author" = "$me" ] || { echo "PR #$num not opened by $me, refusing"; exit 0; }
           case ",$labels," in *,automated,*) ;; *) echo "PR #$num missing automated label, refusing"; exit 0;; esac
+          ./scripts/check-auto-merge.sh "$GH_REPO"
           gh pr merge "$num" --auto --squash
           echo "auto-merge armed on PR #$num; it lands when the required checks pass"
