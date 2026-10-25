@@ -5,6 +5,8 @@ The experimental outbound Remote adaptation follows
 [ilysenko/codex-desktop-linux](https://github.com/ilysenko/codex-desktop-linux).
 Third-party packaging notices and the original Remote reference are preserved
 in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Reviewed upstream revisions and compatibility decisions are recorded in
+[docs/CI.md](docs/CI.md#upstream-review-on-october-25-2026).
 
 This repo packages the **official** ChatGPT / Codex Linux build as a Flatpak
 that starts with no access to your files, and gives it back one directory at a
@@ -199,6 +201,8 @@ None of this is optional, and nothing here is created for you.
   `GITHUB_TOKEN` so PR checks can run without manual approval and merging
   can trigger the publication workflow. The
   workflow fails on the first step with a clear message if this is unset.
+  A fine-grained token also needs repository Administration read permission
+  to verify branch protection before enabling auto-merge.
 
 **Settings**
 
@@ -207,8 +211,12 @@ None of this is optional, and nothing here is created for you.
   private, so the `docker://ghcr.io/...` install above returns 401 for everyone
   until you change it under Packages, package settings, change visibility.
 - Allow auto-merge, under General. Without it the auto-merge step errors out.
-- Branch protection on `main` requiring these four checks: `shellcheck`,
+- Classic branch protection on `main` requiring these four checks: `shellcheck`,
   `lint`, `build (x86_64)`, `build (aarch64)`.
+  The update workflow verifies all four requirements before enabling
+  auto-merge. Without required checks, `gh pr merge --auto` can merge a
+  refresh immediately, before its builds finish. Missing or unreadable
+  protection now stops the auto-merge step and leaves the PR open.
 
 **Labels and variables**
 

@@ -41,7 +41,7 @@ function validateVisibility(source) {
   }
 }
 
-function patchSource(kind, source, splitVisibility) {
+function patchSource(kind, source, { splitVisibility, splitBridge }) {
   if (kind === "main") {
     // Keep the wrapper's signedPayloadBase64 and canonical payload validation.
     for (const anchor of [
@@ -62,11 +62,13 @@ function patchSource(kind, source, splitVisibility) {
     return source.replace(before, after);
   }
   if (kind === "initial") {
-    for (const anchor of [
-      "[remote-connections/gate-bridge]",
-      "set-remote-control-connections-enabled",
-    ]) {
-      if (!source.includes(anchor)) fail(`remote catalog contract changed: ${anchor}`);
+    if (!splitBridge) {
+      for (const anchor of [
+        "[remote-connections/gate-bridge]",
+        "set-remote-control-connections-enabled",
+      ]) {
+        if (!source.includes(anchor)) fail(`remote catalog contract changed: ${anchor}`);
+      }
     }
     if (splitVisibility) {
       if (visibilityOwners(source).length) fail("ambiguous remote-control visibility layout");
@@ -76,7 +78,25 @@ function patchSource(kind, source, splitVisibility) {
     source = gate(source, "4114442250", "!0/*fp-nav*/", 2);
     // Both the loader hook and the enablement bridge must agree; changing
     // visibility alone leaves the main process with an empty catalog.
-    return gate(source, "1042620455", "!0/*fp-rc*/", 2);
+    return gate(source, "1042620455", "!0/*fp-rc*/", splitBridge ? 1 : 2);
+  }
+  if (kind === "bridge") {
+    // 26.1021 moved the bridge into app-runtime and replaced its IPC call
+    // with a service method. Leave loading and one-to-one pairing unchanged.
+    const marker = "[remote-connections/gate-bridge]";
+    const index = source.indexOf(marker);
+    const start = source.lastIndexOf("function ", index);
+    const next = source.indexOf("function ", index);
+    const end = next === -1 ? source.length : next;
+    const owner = source.slice(start, end);
+    if (source.split(marker).length !== 2 || start < 0 || owner.length > 6000 ||
+        !/^function [A-Za-z_$][\w$]*\(\)\{/.test(owner) ||
+        owner.split(".remoteConnections").length !== 2 ||
+        owner.split(".setRemoteControlEnabled(").length !== 2 ||
+        !/[A-Za-z_$][\w$]*\|\|([A-Za-z_$][\w$]*)==null\|\|\1\.setRemoteControlEnabled\(\{enabled:[A-Za-z_$][\w$]*,oneToOnePairingInAppEnabled:[A-Za-z_$][\w$]*\}\)/.test(owner)) {
+      fail("remote catalog service bridge contract changed");
+    }
+    return source.slice(0, start) + gate(owner, "1042620455", "!0/*fp-rc*/", 1) + source.slice(end);
   }
   if (kind === "visibility") {
     // 26.924.50649 extracted this function from app-initial. Validate its
@@ -120,6 +140,15 @@ function read(fd, length, position) {
   return bytes;
 }
 
+function readEntry(fd, { entry, path }, dataOffset) {
+  const position = dataOffset + Number(entry.offset);
+  if (entry.unpacked || entry.offset == null || !Number.isSafeInteger(position) ||
+      position < dataOffset || !Number.isSafeInteger(entry.size) || entry.size <= 0) {
+    fail(`unsupported entry: ${path}`);
+  }
+  return { original: read(fd, entry.size, position), position };
+}
+
 function hash(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
@@ -149,18 +178,19 @@ function run() {
     if (visibility.length > 1) fail("expected at most one remote-control visibility bundle");
     const splitVisibility = visibility[0]?.path.split("/").at(-1);
     if (splitVisibility) targets.push(["visibility", visibilityPattern]);
+    const bridgePattern = /^webview\/assets\/app-runtime-[^/]+\.js$/;
+    const bridgeOwners = files.filter(file => targets[1][1].test(file.path) || bridgePattern.test(file.path))
+      .filter(file => readEntry(fd, file, dataOffset).original.includes("[remote-connections/gate-bridge]"));
+    if (bridgeOwners.length !== 1) fail("expected exactly one remote catalog bridge owner");
+    const splitBridge = bridgePattern.test(bridgeOwners[0].path);
+    if (splitBridge) targets.push(["bridge", bridgePattern]);
     const writes = [];
     for (const [kind, pattern] of targets) {
       const matches = files.filter(file => pattern.test(file.path));
       if (matches.length !== 1) fail(`expected one ${kind} bundle, found ${matches.length}`);
       const { entry, path } = matches[0];
-      const position = dataOffset + Number(entry.offset);
-      if (entry.unpacked || entry.offset == null || !Number.isSafeInteger(position) ||
-          position < dataOffset || !Number.isSafeInteger(entry.size) || entry.size <= 0) {
-        fail(`unsupported entry: ${path}`);
-      }
-      const original = read(fd, entry.size, position);
-      const contents = Buffer.from(patchSource(kind, original.toString("utf8"), splitVisibility));
+      const { original, position } = readEntry(fd, matches[0], dataOffset);
+      const contents = Buffer.from(patchSource(kind, original.toString("utf8"), { splitVisibility, splitBridge }));
       if (contents.length !== original.length) fail(`rewrite changed size: ${path}`);
       const integrity = entry.integrity;
       if (integrity?.algorithm !== "SHA256" || !Number.isSafeInteger(integrity.blockSize) ||
