@@ -53,13 +53,15 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
     ]) {
       if (!source.includes(anchor)) fail(`device-key wrapper changed: ${anchor}`);
     }
-    const before = "`remote-control-device-key.node`";
-    const after = padded(before, "`flatpak-device-key.cjs`");
-    if (!source.includes(before) && source.split(after).length === 2) return source;
-    if (source.split(before).length !== 2 || source.includes("flatpak-device-key.cjs")) {
+    // Vite uses template literals; rspack/SWC uses double-quoted strings.
+    const nativeNames = [...source.matchAll(/([`"])remote-control-device-key\.node\1/g)];
+    const softwareNames = [...source.matchAll(/([`"])flatpak-device-key\.cjs\1/g)];
+    if (nativeNames.length === 0 && softwareNames.length === 1) return source;
+    if (nativeNames.length !== 1 || softwareNames.length !== 0) {
       fail("expected exactly one native device-key filename");
     }
-    return source.replace(before, after);
+    const [before, quote] = nativeNames[0];
+    return source.replace(before, padded(before, `${quote}flatpak-device-key.cjs${quote}`));
   }
   if (kind === "initial") {
     if (!splitBridge) {
@@ -169,7 +171,9 @@ function run() {
     const header = JSON.parse(read(fd, headerSize, 16).toString("utf8"));
     const files = walk(header);
     const targets = [
-      ["main", /^\.vite\/build\/main-[^/]+\.js$/],
+      // 26.1027 replaced the Vite main bundle with rspack bootstrap chunks.
+      // Resolve the one device-key owner, not a particular chunk number/hash.
+      ["main", /^\.vite\/build\/(?:main-[^/]+|early-bootstrap(?:-[^/]+)?)\.js$/],
       ["initial", /^webview\/assets\/app-initial-[^/]+\.js$/],
       ["settings", /^webview\/assets\/remote-connections-settings-[^/]+\.js$/],
     ];
@@ -186,7 +190,12 @@ function run() {
     if (splitBridge) targets.push(["bridge", bridgePattern]);
     const writes = [];
     for (const [kind, pattern] of targets) {
-      const matches = files.filter(file => pattern.test(file.path));
+      let matches = files.filter(file => pattern.test(file.path));
+      if (kind === "main") {
+        matches = matches.filter(file =>
+          /([`"])(?:remote-control-device-key\.node|flatpak-device-key\.cjs)\1/.test(
+            readEntry(fd, file, dataOffset).original.toString("utf8")));
+      }
       if (matches.length !== 1) fail(`expected one ${kind} bundle, found ${matches.length}`);
       const { entry, path } = matches[0];
       const { original, position } = readEntry(fd, matches[0], dataOffset);

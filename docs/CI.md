@@ -38,6 +38,25 @@ backend availability/access checks and the native signing wrapper are retained.
 Tests cover both bridge layouts, unchanged unrelated gates, idempotence,
 integrity failures and rejection before any archive writes.
 
+Upstream 26.1027.30824 switched the main process from Vite's single
+`main-*.js` bundle to rspack's `early-bootstrap.js` and numbered
+`early-bootstrap-*-*.js` chunks. SWC also changed the native addon filename
+from a template literal to a double-quoted string. The October 30 builds on
+both architectures consequently stopped with `expected one main bundle,
+found 0`. The patcher now resolves the unique device-key owner among the
+supported main-process chunks and accepts both string forms. It still requires
+the signing/validation anchors and valid ASAR integrity before writing.
+Unrelated main chunks and worker bundles remain untouched; missing or duplicate
+owners, changed contracts and corrupt integrity are regression-tested.
+
+The [codex-desktop-linux 26.1027 repair](https://github.com/ilysenko/codex-desktop-linux/commit/f9b973bc03ea60fc971bd227948541fe84bce635)
+was reviewed alongside both real vendor packages. Their pinned SHA-256 hashes
+and sizes match, and both terminal and Remote patches apply, verify and remain
+idempotent. This change retains the vendor's canonical signing wrapper and
+the local software key store. All shell tests, ShellCheck, manifest lint and
+an isolated x86_64 Flatpak build/install/smoke check pass. Full ARM64
+installation remains for CI; an enrolled Remote connection was not tested.
+
 ## Upstream review on October 25, 2026
 
 | Source | Reviewed revision | Result |

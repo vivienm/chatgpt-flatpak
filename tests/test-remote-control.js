@@ -58,6 +58,16 @@ const serviceFixture = {
     .replace(legacyBridge, ""),
   [runtimePath]: serviceBridge + "function unrelated(){return check(`1042620455`)}",
 };
+const rspackMainPath = ".vite/build/early-bootstrap-916-test.js";
+const { [mainPath]: viteMain, ...serviceWithoutMain } = serviceFixture;
+const rspackFixture = {
+  ...serviceWithoutMain,
+  [rspackMainPath]: viteMain.replace("`remote-control-device-key.node`", '"remote-control-device-key.node"'),
+  ".vite/build/early-bootstrap.js": "const entry = 'unrelated bootstrap';",
+  ".vite/build/early-bootstrap-339-test.js": "const other = 'unrelated main chunk';",
+  // A worker is not a main-process owner, even if it mentions the filename.
+  ".vite/build/worker.js": viteMain,
+};
 
 function hash(bytes) { return crypto.createHash("sha256").update(bytes).digest("hex"); }
 
@@ -116,7 +126,8 @@ function readAsar(filename) {
 
 function run(...args) { return spawnSync(process.execPath, [patcher, ...args], { encoding: "utf8" }); }
 
-function testLayout(layout, sources) {
+function testLayout(layout, sources, deviceKeyPath = mainPath) {
+  const service = sources[runtimePath] != null;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-patch-test-"));
   const archive = path.join(root, "app.asar");
   try {
@@ -136,7 +147,12 @@ function testLayout(layout, sources) {
     }
     assert.deepEqual(after["untouched.txt"], before["untouched.txt"]);
     if (layout !== "inline") assert.deepEqual(after[visibilityPath], before[visibilityPath]);
-    assert.ok(after[mainPath].text.includes("flatpak-device-key.cjs"));
+    assert.ok(after[deviceKeyPath].text.includes("flatpak-device-key.cjs"));
+    for (const name of Object.keys(sources)) {
+      if (name.startsWith(".vite/build/") && name !== deviceKeyPath) {
+        assert.deepEqual(after[name], before[name]);
+      }
+    }
 
     for (const patched of [false, true]) {
       const files = patched ? after : before;
@@ -154,11 +170,11 @@ function testLayout(layout, sources) {
         (files[runtimePath]?.text ?? "") +
         files[settingsPath].text.replace(visibilityImport, ""), context);
       const calls = ["nav()", "list()", "load()"];
-      if (layout !== "service") calls.push("bridge()");
+      if (!service) calls.push("bridge()");
       for (const call of calls) {
         assert.equal(vm.runInContext(call, context), patched, call);
       }
-      if (layout === "service") {
+      if (service) {
         for (const pairing of [false, true]) {
           context.pairing = pairing;
           vm.runInContext("bridge()", context);
@@ -200,8 +216,8 @@ function testLayout(layout, sources) {
     const cases = [
       { ...sources, [settingsPath]: "upstream changed" },
       { ...sources, [initialPath]: sources[initialPath].replace("1042620455", "9999999999") },
-      { ...sources, ".vite/build/main-duplicate.js": sources[mainPath] },
-      { ...sources, [mainPath]: sources[mainPath].replace("connection audience", "changed audience") },
+      { ...sources, ".vite/build/main-duplicate.js": sources[deviceKeyPath] },
+      { ...sources, [deviceKeyPath]: sources[deviceKeyPath].replace("connection audience", "changed audience") },
     ];
     for (const invalidSources of cases) {
       makeAsar(archive, invalidSources);
@@ -222,10 +238,46 @@ function testLayout(layout, sources) {
   }
 }
 
-for (const [layout, sources] of [["inline", fixture], ["split", splitFixture], ["service", serviceFixture]]) {
+for (const [layout, sources, deviceKeyPath] of [
+  ["inline", fixture], ["split", splitFixture], ["service", serviceFixture],
+  ["rspack", rspackFixture, rspackMainPath],
+]) {
   test(`ASAR patch (${layout} visibility): behavior, integrity, offsets, idempotence and fail-before-write`,
-    () => testLayout(layout, sources));
+    () => testLayout(layout, sources, deviceKeyPath));
 }
+
+test("rspack device-key owners must be unique, intact and fully validated before writing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-rspack-test-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    const { [rspackMainPath]: owner, ...withoutOwner } = rspackFixture;
+    const cases = [
+      withoutOwner,
+      { ...rspackFixture, ".vite/build/early-bootstrap-887-test.js": owner },
+      { ...rspackFixture, [mainPath]: viteMain },
+      { ...rspackFixture, [rspackMainPath]: owner.replace('"remote-control-device-key.node"', '"unknown-addon.node"') },
+      { ...rspackFixture, [rspackMainPath]: owner.replace("this.getAddon().signDeviceKey(", "this.getAddon().differentMethod(") },
+      { ...rspackFixture, [rspackMainPath]: owner + 'const extra="remote-control-device-key.node";' },
+      { ...rspackFixture, [rspackMainPath]: owner + 'const extra="flatpak-device-key.cjs";' },
+    ];
+    for (const sources of cases) {
+      makeAsar(archive, sources);
+      const original = fs.readFileSync(archive);
+      for (const mode of [[], ["--check"], ["--verify"]]) {
+        assert.notEqual(run(...mode, archive).status, 0);
+        assert.deepEqual(fs.readFileSync(archive), original);
+      }
+    }
+    makeAsar(archive, rspackFixture, header => {
+      header.files[".vite"].files.build.files[rspackMainPath.split("/").at(-1)].integrity.hash = "0".repeat(64);
+    });
+    const original = fs.readFileSync(archive);
+    assert.match(run(archive).stderr, /integrity mismatch/);
+    assert.deepEqual(fs.readFileSync(archive), original);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
 
 test("service bridge drift, ambiguity and integrity errors fail before writing", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-bridge-test-"));
