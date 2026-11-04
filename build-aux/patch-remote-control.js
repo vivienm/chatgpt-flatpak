@@ -9,6 +9,9 @@
 // the same byte length; validate all changes before writing anything to ASAR.
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const IDENT = "[A-Za-z_$][\\w$]*";
+const MEMBER = `${IDENT}(?:\\.${IDENT})?`;
+const CALL = `(?:${IDENT}|\\(0,${IDENT}\\.${IDENT}\\))`;
 
 function fail(message) {
   throw new Error(message);
@@ -20,7 +23,7 @@ function padded(before, after) {
 }
 
 function gate(source, id, marker, count) {
-  const pattern = new RegExp(`[A-Za-z_$][\\w$]*\\((?:[A-Za-z_$][\\w$]*,)?\`${id}\`\\)`, "g");
+  const pattern = new RegExp(`${CALL}\\((?:${MEMBER},)?([\`\"])${id}\\1\\)`, "g");
   const matches = [...source.matchAll(pattern)];
   const patched = source.split(marker).length - 1;
   if (matches.length === 0 && patched === count) return source;
@@ -44,8 +47,11 @@ function validateVisibility(source) {
 function patchSource(kind, source, { splitVisibility, splitBridge }) {
   if (kind === "main") {
     // Keep the wrapper's signedPayloadBase64 and canonical payload validation.
+    if (!source.includes("Remote control device keys require resourcesPath") &&
+        !source.includes("Device keys require resourcesPath")) {
+      fail("device-key wrapper changed: resourcesPath guard");
+    }
     for (const anchor of [
-      "Remote control device keys require resourcesPath",
       "codex-device-key-sign-payload/v1",
       "Invalid remote-control device-key connection audience",
       "Invalid remote-control device-key enrollment audience",
@@ -82,6 +88,12 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
     // visibility alone leaves the main process with an empty catalog.
     return gate(source, "1042620455", "!0/*fp-rc*/", splitBridge ? 1 : 2);
   }
+  if (kind === "catalog") {
+    // Only the shared navigation/loader owner: other copies of 1042620455
+    // guard computer-use capabilities and must retain their upstream checks.
+    source = gate(source, "4114442250", "!0/*fp-nav*/", 2);
+    return gate(source, "1042620455", "!0/*fp-rc*/", 1);
+  }
   if (kind === "bridge") {
     // 26.1021 moved the bridge into app-runtime and replaced its IPC call
     // with a service method. Leave loading and one-to-one pairing unchanged.
@@ -95,7 +107,8 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
         !/^function [A-Za-z_$][\w$]*\(\)\{/.test(owner) ||
         owner.split(".remoteConnections").length !== 2 ||
         owner.split(".setRemoteControlEnabled(").length !== 2 ||
-        !/[A-Za-z_$][\w$]*\|\|([A-Za-z_$][\w$]*)==null\|\|\1\.setRemoteControlEnabled\(\{enabled:[A-Za-z_$][\w$]*,oneToOnePairingInAppEnabled:[A-Za-z_$][\w$]*\}\)/.test(owner)) {
+        !new RegExp(`${IDENT}\\|\\|(?:(${IDENT})==null\\|\\|\\1|null==(${IDENT})\\|\\|\\2)` +
+          `\\.setRemoteControlEnabled\\(\\{enabled:${IDENT},oneToOnePairingInAppEnabled:${IDENT}\\}\\)`).test(owner)) {
       fail("remote catalog service bridge contract changed");
     }
     return source.slice(0, start) + gate(owner, "1042620455", "!0/*fp-rc*/", 1) + source.slice(end);
@@ -109,10 +122,10 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
   if (splitVisibility && !source.includes(`from"./${splitVisibility}"`)) {
     fail("settings no longer imports the remote-control visibility bundle");
   }
-  const owners = [...source.matchAll(/([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\(`782640499`\)/g)];
+  const owners = [...source.matchAll(new RegExp(`(${IDENT})=${CALL}\\(([\`\"])782640499\\2\\)`, "g"))];
   if (owners.length !== 1) fail("outbound tab gate owner changed");
   const owner = owners[0][1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`([A-Za-z_$][\\w$]*=)!(?:${owner}|0) *(?=,[A-Za-z_$][\\w$]*=[A-Za-z_$][\\w$]*==null)`, "g");
+  const pattern = new RegExp(`(${IDENT}=)!(?:${owner}|0) *(?=,${IDENT}=(?:${IDENT}==null|null==${IDENT}))`, "g");
   const matches = [...source.matchAll(pattern)];
   if (matches.length !== 1) fail("outbound tab gate consumer changed");
   source = source.replace(pattern, (before, prefix) => padded(before, `${prefix}!0`));
@@ -155,6 +168,27 @@ function hash(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
+function rspackTargets(fd, files, dataOffset) {
+  const owners = { catalog: [], bridge: [], settings: [], visibility: [] };
+  for (const file of files.filter(file => /^webview\/assets\/async\/\d+\.[a-f\d]+\.js$/.test(file.path))) {
+    const source = readEntry(fd, file, dataOffset).original.toString("utf8");
+    if (source.includes('"4114442250"') || source.includes("/*fp-nav*/")) owners.catalog.push(file);
+    if (source.includes("[remote-connections/gate-bridge]")) owners.bridge.push(file);
+    if (source.includes('"782640499"')) owners.settings.push(file);
+    if (/function [A-Za-z_$][\w$]*\(\{remoteControlConnectionsState:/.test(source)) owners.visibility.push(file);
+  }
+  for (const kind of ["catalog", "bridge", "settings"]) {
+    if (owners[kind].length !== 1) fail(`expected one rspack ${kind} bundle, found ${owners[kind].length}`);
+  }
+  if (owners.visibility.length === 0) fail("remote-control visibility bundles missing");
+  const paths = Object.values(owners).flat().map(file => file.path);
+  if (new Set(paths).size !== paths.length) {
+    fail("overlapping rspack remote-control owners");
+  }
+  return Object.entries(owners).flatMap(([kind, matches]) =>
+    matches.map(file => [kind, { test: path => path === file.path }]));
+}
+
 function run() {
   const args = process.argv.slice(2);
   const mode = args[0]?.startsWith("--") ? args.shift() : "write";
@@ -177,17 +211,24 @@ function run() {
       ["initial", /^webview\/assets\/app-initial-[^/]+\.js$/],
       ["settings", /^webview\/assets\/remote-connections-settings-[^/]+\.js$/],
     ];
-    const visibilityPattern = /^webview\/assets\/remote-control-connections-visibility-[^/]+\.js$/;
-    const visibility = files.filter(file => visibilityPattern.test(file.path));
-    if (visibility.length > 1) fail("expected at most one remote-control visibility bundle");
-    const splitVisibility = visibility[0]?.path.split("/").at(-1);
-    if (splitVisibility) targets.push(["visibility", visibilityPattern]);
-    const bridgePattern = /^webview\/assets\/app-runtime-[^/]+\.js$/;
-    const bridgeOwners = files.filter(file => targets[1][1].test(file.path) || bridgePattern.test(file.path))
-      .filter(file => readEntry(fd, file, dataOffset).original.includes("[remote-connections/gate-bridge]"));
-    if (bridgeOwners.length !== 1) fail("expected exactly one remote catalog bridge owner");
-    const splitBridge = bridgePattern.test(bridgeOwners[0].path);
-    if (splitBridge) targets.push(["bridge", bridgePattern]);
+    const rspack = !files.some(file => targets[1][1].test(file.path)) &&
+      files.some(file => /^webview\/assets\/async\/\d+\.[a-f\d]+\.js$/.test(file.path));
+    let splitVisibility, splitBridge;
+    if (rspack) {
+      targets.splice(1, 2, ...rspackTargets(fd, files, dataOffset));
+    } else {
+      const visibilityPattern = /^webview\/assets\/remote-control-connections-visibility-[^/]+\.js$/;
+      const visibility = files.filter(file => visibilityPattern.test(file.path));
+      if (visibility.length > 1) fail("expected at most one remote-control visibility bundle");
+      splitVisibility = visibility[0]?.path.split("/").at(-1);
+      if (splitVisibility) targets.push(["visibility", visibilityPattern]);
+      const bridgePattern = /^webview\/assets\/app-runtime-[^/]+\.js$/;
+      const bridgeOwners = files.filter(file => targets[1][1].test(file.path) || bridgePattern.test(file.path))
+        .filter(file => readEntry(fd, file, dataOffset).original.includes("[remote-connections/gate-bridge]"));
+      if (bridgeOwners.length !== 1) fail("expected exactly one remote catalog bridge owner");
+      splitBridge = bridgePattern.test(bridgeOwners[0].path);
+      if (splitBridge) targets.push(["bridge", bridgePattern]);
+    }
     const writes = [];
     for (const [kind, pattern] of targets) {
       let matches = files.filter(file => pattern.test(file.path));
