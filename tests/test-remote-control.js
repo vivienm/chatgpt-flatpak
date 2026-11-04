@@ -359,3 +359,141 @@ test("visibility drift or an ambiguous/missing bundle fails before any ASAR writ
     fs.rmSync(root, { force: true, recursive: true });
   }
 });
+
+// 26.1029 moves the renderer to numbered rspack chunks, with SWC call forms,
+// reordered null guards and shared visibility modules duplicated across chunks.
+const asyncCatalog = "webview/assets/async/24191.7b05d5cf83.js";
+const asyncBridge = "webview/assets/async/855047.05049c3449.js";
+const asyncSettings = "webview/assets/async/14625.95f35fcee5.js";
+const asyncVisibility = "webview/assets/async/389433.23e9feaa6e.js";
+const asyncVisibilityCopy = "webview/assets/async/435221.eac941d988.js";
+const asyncSources = {
+  [rspackMainPath]: rspackFixture[rspackMainPath]
+    .replace("Remote control device keys require resourcesPath", "Device keys require resourcesPath"),
+  [asyncCatalog]: 'function nav(){return get(flag.gate,"4114442250")}' +
+    'function list(){return get(flag.gate,"4114442250")}' +
+    'function load(){return(0,rollout.check)("1042620455")}',
+  [asyncBridge]: 'function bridge(){let e,t,n,a,i=cache(10),{checkGate:s,isLoading:r}=(0,rollout.use)();' +
+    'i[0]!==s?(e=s(flag.pairing),i[0]=s,i[1]=e):e=i[1];let o=e;' +
+    'i[2]!==s||i[3]!==o?(t=s("1042620455")||o,i[2]=s,i[3]=o,i[4]=t):t=i[4];let l=t;' +
+    'return i[5]!==r||i[6]!==o||i[7]!==l?(n=()=>{let e=B.appServices.remoteConnections;' +
+    'r||null==e||e.setRemoteControlEnabled({enabled:l,oneToOnePairingInAppEnabled:o}).catch(e=>{' +
+    'log("[remote-connections/gate-bridge] sync_failed",e)})},a=[r,o,l],i[5]=r,i[6]=o,i[7]=l,' +
+    'i[8]=n,i[9]=a):(n=i[8],a=i[9]),effect(n,a),null}function unrelated(){return check("1042620455")}',
+  [asyncSettings]: 'function settings(){let p=(0,rollout.check)("782640499"),K=!p,de=null==v;return K}' +
+    fixture[settingsPath].slice(fixture[settingsPath].indexOf("function tabs")),
+  [asyncVisibility]: visibilitySource +
+    'function lockedComputerUse(){return check("1042620455")&&requirements.allowLockedComputerUse!==!1}',
+  [asyncVisibilityCopy]: visibilitySource.replaceAll("slingshotEnabled:t", "slingshotEnabled:n").replace("return t&&", "return n&&"),
+  "webview/assets/async/123456.abcdef.js": 'function untouched(){return check("1042620455")}',
+};
+
+test("rspack renderer preserves access, pairing, loading and unrelated capability gates", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-async-test-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    makeAsar(archive, asyncSources);
+    const original = fs.readFileSync(archive);
+    const before = readAsar(archive);
+    assert.equal(run("--check", archive).status, 0);
+    assert.notEqual(run("--verify", archive).status, 0);
+    assert.deepEqual(fs.readFileSync(archive), original);
+    const result = run(archive);
+    assert.equal(result.status, 0, result.stderr);
+    const after = readAsar(archive);
+    assert.equal(fs.statSync(archive).size, original.length);
+    for (const name of Object.keys(before)) {
+      assert.equal(after[name].offset, before[name].offset);
+      assert.equal(after[name].size, before[name].size);
+      if (![rspackMainPath, asyncCatalog, asyncBridge, asyncSettings].includes(name)) {
+        assert.deepEqual(after[name], before[name]);
+      }
+    }
+    assert.match(after[rspackMainPath].text, /flatpak-device-key\.cjs/);
+    for (const patched of [false, true]) {
+      const files = patched ? after : before;
+      const context = vm.createContext({ flag: { pairing: "pairing" }, v: [], cache: () => [],
+        get: () => false, check: () => false, effect: fn => fn(), log() {}, requirements: {} });
+      context.rollout = { check: () => false,
+        use: () => ({ checkGate: id => id === "pairing" ? context.pairing : false, isLoading: context.loading }) };
+      context.B = { appServices: { remoteConnections: { setRemoteControlEnabled: params => {
+        context.result = params;
+        return { catch() {} };
+      } } } };
+      vm.runInContext([asyncCatalog, asyncBridge, asyncSettings, asyncVisibility].map(name => files[name].text).join("\n"), context);
+      for (const call of ["nav()", "list()", "load()", "settings()"]) {
+        // settings uses the inverse of the hidden-tab rollout.
+        assert.equal(vm.runInContext(call, context), call === "settings()" ? true : patched);
+      }
+      context.rollout.check = () => true;
+      assert.equal(vm.runInContext("settings()", context), patched);
+      for (const pairing of [false, true]) {
+        context.pairing = pairing;
+        vm.runInContext("bridge()", context);
+        assert.equal(context.result.enabled, patched || pairing);
+        assert.equal(context.result.oneToOnePairingInAppEnabled, pairing);
+      }
+      context.result = undefined;
+      context.loading = true;
+      vm.runInContext("bridge()", context);
+      assert.equal(context.result, undefined);
+      context.loading = false;
+      context.B.appServices.remoteConnections = null;
+      vm.runInContext("bridge()", context);
+      assert.equal(context.result, undefined);
+      assert.equal(vm.runInContext("unrelated()", context), false);
+      assert.equal(vm.runInContext("lockedComputerUse()", context), false);
+      assert.equal(vm.runInContext("tabs().showControlThisMacTab", context), !patched);
+      assert.equal(vm.runInContext("tabs().showControlOtherDevices && tabs().showSsh", context), true);
+      for (const state of [{ available: false }, { available: true, accessRequired: true }, { available: true }]) {
+        context.state = state;
+        assert.equal(vm.runInContext("visible({remoteControlConnectionsState:state,slingshotEnabled:true})", context),
+          state.available && state.accessRequired !== true);
+      }
+    }
+    const patched = fs.readFileSync(archive);
+    assert.equal(run(archive).status, 0);
+    assert.equal(run("--verify", archive).status, 0);
+    assert.deepEqual(fs.readFileSync(archive), patched);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("rspack renderer rejects missing, ambiguous, changed or corrupt contracts before writing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-async-drift-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    const cases = [
+      ...[asyncCatalog, asyncBridge, asyncSettings].flatMap(name => {
+        const { [name]: source, ...missing } = asyncSources;
+        return [missing, { ...asyncSources, "webview/assets/async/999999.abcdef.js": source }];
+      }),
+      ...[
+        [asyncCatalog, "1042620455", "9999999999"],
+        [asyncBridge, "r||null==e||", "null==e||"],
+        [asyncBridge, "oneToOnePairingInAppEnabled:o", "oneToOnePairingInAppEnabled:!0"],
+        [asyncVisibilityCopy, "?.available??!0", "?.available??!1"],
+        [asyncVisibilityCopy, "?.accessRequired!==!0", "?.accessRequired===!0"],
+        [asyncSettings, "K=!p", "K=p"],
+        [rspackMainPath, "Device keys require resourcesPath", "Unexpected resourcesPath"],
+      ].map(([name, from, to]) => ({ ...asyncSources, [name]: asyncSources[name].replace(from, to) })),
+    ];
+    for (const sources of cases) {
+      makeAsar(archive, sources);
+      const original = fs.readFileSync(archive);
+      for (const mode of [[], ["--check"], ["--verify"]]) {
+        assert.notEqual(run(...mode, archive).status, 0);
+        assert.deepEqual(fs.readFileSync(archive), original);
+      }
+    }
+    makeAsar(archive, asyncSources, header => {
+      header.files.webview.files.assets.files.async.files[asyncVisibilityCopy.split("/").at(-1)].integrity.hash = "0".repeat(64);
+    });
+    const corrupt = fs.readFileSync(archive);
+    assert.match(run(archive).stderr, /integrity mismatch/);
+    assert.deepEqual(fs.readFileSync(archive), corrupt);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
