@@ -497,3 +497,90 @@ test("rspack renderer rejects missing, ambiguous, changed or corrupt contracts b
     fs.rmSync(root, { force: true, recursive: true });
   }
 });
+
+const catalogStatePath = "webview/assets/async/71.abcdef.js";
+const catalogCopyPath = "webview/assets/async/72.abcdef.js";
+const settingsSearchPath = "webview/assets/async/73.abcdef.js";
+const sharedCatalogSource = 'let remote="1042620455",nav="4114442250",placeholder;' +
+  'function navOne(data){return configured(data?.config,get(flag.primary,nav))}' +
+  'function navTwo(data){return configured(data?.config,get(flag.secondary,nav))}' +
+  'function configured(config,enabled){return config?.["features.remote_connections"]===true||enabled}' +
+  'const exports={i2:remote,mC:function(){return(0,rollout.check)(remote)}};' +
+  'function catalog(){return{enabledRemoteHostIdSet:new Set()}}' +
+  'function unrelated(){return check("1042620455")}';
+const catalogStateSource = 'function state(config){if(get(flag.primary,"4114442250"))return"enabled";' +
+  'if(config.isLoading)return"loading";return config.data?.["features.remote_connections"]?"enabled":"disabled"}';
+const settingsSearchSource = 'const modules={search(e,t,n){var x=n("messages");let hidden="782640499",' +
+  'label="settings.remoteConnections.tabs.accessOtherDevices";n.d(t,{},{K0:hidden})}};';
+const sharedSettingsSource = settingsSearchSource +
+  'const component={RemoteConnectionsSettings:()=>settings()};const searchModule=load("search");' +
+  asyncSources[asyncSettings].replace('(0,rollout.check)("782640499")', "(0,rollout.check)(searchModule.K0)");
+const sharedCatalogFixture = {
+  ...asyncSources,
+  [asyncCatalog]: sharedCatalogSource,
+  [catalogCopyPath]: sharedCatalogSource + visibilitySource,
+  [catalogStatePath]: catalogStateSource,
+  [asyncSettings]: sharedCatalogSource + sharedSettingsSource,
+  [settingsSearchPath]: settingsSearchSource,
+};
+
+test("rspack patches every shared catalog copy and the settings component in the same chunk", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-shared-catalog-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    makeAsar(archive, sharedCatalogFixture);
+    const original = fs.readFileSync(archive);
+    const check = run("--check", archive);
+    assert.equal(check.status, 0, check.stderr);
+    assert.deepEqual(fs.readFileSync(archive), original);
+    const result = run(archive);
+    assert.equal(result.status, 0, result.stderr);
+    const after = readAsar(archive);
+    assert.equal(after[settingsSearchPath].text, settingsSearchSource);
+    assert.ok(after[catalogCopyPath].text.endsWith(visibilitySource));
+    assert.equal(fs.statSync(archive).size, original.length);
+    for (const name of [asyncCatalog, catalogCopyPath, asyncSettings]) {
+      const context = vm.createContext({ flag: {}, rollout: { check: () => false }, get: () => false,
+        check: () => false, load: () => ({ K0: "782640499" }), v: [] });
+      vm.runInContext(after[name].text, context);
+      assert.equal(vm.runInContext("navOne({}) && navTwo({}) && exports.mC()", context), true);
+      assert.equal(vm.runInContext("exports.i2", context), "1042620455");
+      assert.equal(vm.runInContext("unrelated()", context), false);
+      if (name === asyncSettings) {
+        context.rollout.check = () => true;
+        assert.equal(vm.runInContext("settings()", context), true);
+        assert.equal(vm.runInContext("tabs().showControlThisMacTab", context), false);
+      }
+    }
+    const context = vm.createContext({ flag: {}, get: () => false });
+    assert.equal(vm.runInContext(after[catalogStatePath].text + "state({})", context), "enabled");
+    const patched = fs.readFileSync(archive);
+    assert.equal(run("--verify", archive).status, 0);
+    assert.equal(run(archive).status, 0);
+    assert.deepEqual(fs.readFileSync(archive), patched);
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("rspack rejects drift in a shared catalog copy or settings import before writing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "remote-shared-drift-"));
+  const archive = path.join(root, "app.asar");
+  try {
+    for (const [name, from, to] of [
+      [catalogCopyPath, "get(flag.secondary,nav)", "get(flag.secondary,other)"],
+      [catalogCopyPath, "(0,rollout.check)(remote)", "(0,rollout.check)(other)"],
+      [catalogCopyPath, "?.accessRequired!==!0", "?.accessRequired===!0"],
+      [catalogStatePath, "config.isLoading", "config.loading"],
+      [asyncSettings, "searchModule.K0", "searchModule.Other"],
+    ]) {
+      const changed = sharedCatalogFixture[name].replace(from, to);
+      makeAsar(archive, { ...sharedCatalogFixture, [name]: changed });
+      const original = fs.readFileSync(archive);
+      assert.notEqual(run(archive).status, 0);
+      assert.deepEqual(fs.readFileSync(archive), original);
+    }
+  } finally {
+    fs.rmSync(root, { force: true, recursive: true });
+  }
+});
