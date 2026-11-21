@@ -12,6 +12,9 @@ const fs = require("node:fs");
 const IDENT = "[A-Za-z_$][\\w$]*";
 const MEMBER = `${IDENT}(?:\\.${IDENT})?`;
 const CALL = `(?:${IDENT}|\\(0,${IDENT}\\.${IDENT}\\))`;
+const CATALOG_BINDINGS = `\\blet (${IDENT})="1042620455",(${IDENT})="4114442250",`;
+const NAV_MARKER = "!0/*fp-nav*/";
+const REMOTE_MARKER = "!0/*fp-rc*/";
 
 function fail(message) {
   throw new Error(message);
@@ -22,6 +25,10 @@ function padded(before, after) {
   return after + " ".repeat(Buffer.byteLength(before) - Buffer.byteLength(after));
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function gate(source, id, marker, count) {
   const pattern = new RegExp(`${CALL}\\((?:${MEMBER},)?([\`\"])${id}\\1\\)`, "g");
   const matches = [...source.matchAll(pattern)];
@@ -29,6 +36,65 @@ function gate(source, id, marker, count) {
   if (matches.length === 0 && patched === count) return source;
   if (matches.length !== count || patched !== 0) fail(`unexpected gate ${id}; review the upstream bundle`);
   return source.replace(pattern, before => padded(before, marker));
+}
+
+function scopedGate(source, prefix, expression, suffix, marker, count, name) {
+  const pattern = new RegExp(`(${prefix})(${expression}|${escapeRegex(marker)} *)(?=${suffix})`, "g");
+  const matches = [...source.matchAll(pattern)];
+  const patched = matches.filter(match => match[2].startsWith(marker)).length;
+  if (matches.length !== count || (patched !== 0 && patched !== count)) {
+    fail(`unexpected ${name}; review the upstream bundle`);
+  }
+  return source.replace(pattern, (_, start, before) => start + padded(before, marker));
+}
+
+function patchSharedCatalog(source) {
+  const bindings = [...source.matchAll(new RegExp(CATALOG_BINDINGS, "g"))];
+  if (bindings.length !== 1) fail("expected exactly one shared remote catalog declaration");
+  const [declaration, remote, nav] = bindings[0];
+  const start = bindings[0].index + declaration.length;
+  const end = source.indexOf("enabledRemoteHostIdSet:", start);
+  if (end < 0 || end - start > 2000) fail("shared remote catalog contract changed");
+  const owner = source.slice(start, end);
+  if (!owner.includes('"features.remote_connections"')) {
+    fail("shared remote catalog contract changed");
+  }
+  // Calls with minified aliases need shorter markers to preserve byte offsets.
+  const getter = `${CALL}\\(${MEMBER},${escapeRegex(nav)}\\)`;
+  const navigation = scopedGate(owner, `return ${IDENT}\\(${IDENT}\\??\\.config,`, getter, "\\)",
+    "!0/*fn*/", 2, "shared catalog navigation gates");
+  // The same module exports the gate ID to other callers. Patch only the hook.
+  const hook = `${CALL}\\(${escapeRegex(remote)}\\)`;
+  const patched = scopedGate(navigation, `,${IDENT}:function\\(\\)\\{return`, hook, "\\}",
+    "!0/*fr*/", 1, "shared catalog rollout hook");
+  return source.slice(0, start) + patched + source.slice(end);
+}
+
+function patchCatalogState(source) {
+  return scopedGate(source, "if\\(", `${CALL}\\(${MEMBER},"4114442250"\\)`,
+    `\\)return"enabled";if\\(${IDENT}\\.isLoading\\)return"loading"`,
+    NAV_MARKER, 1, "catalog navigation state gate");
+}
+
+function settingsGateOwners(source, sharedSettings) {
+  if (!sharedSettings) {
+    return [...source.matchAll(new RegExp(`(${IDENT})=${CALL}\\(([\`\"])782640499\\2\\)`, "g"))];
+  }
+  // The settings component imports the hidden-tab ID from the search module.
+  const modules = [...source.matchAll(new RegExp(
+    `[,{](${IDENT})\\(${IDENT},${IDENT},${IDENT}\\)\\{var [^;{}]+;let (${IDENT})="782640499",`, "g"))];
+  if (modules.length !== 1) fail("expected exactly one settings gate declaration");
+  const [declaration, id, binding] = modules[0];
+  const start = modules[0].index + declaration.length;
+  const owner = source.slice(start, start + 6000);
+  const match = new RegExp(`\\.d\\(${IDENT},\\{\\},\\{(?:[^{}]*,)?(${IDENT}):${escapeRegex(binding)}(?=[,}])[^{}]*\\}\\)\\}`)
+    .exec(owner);
+  if (!match || !owner.slice(0, match.index).includes("settings.remoteConnections.tabs.accessOtherDevices")) {
+    fail("settings gate export contract changed");
+  }
+  const imports = [...source.matchAll(new RegExp(`(${IDENT})=${IDENT}\\("${escapeRegex(id)}"\\)`, "g"))];
+  if (imports.length !== 1) fail("expected exactly one settings gate import");
+  return [...source.matchAll(new RegExp(`(${IDENT})=${CALL}\\(${escapeRegex(imports[0][1])}\\.${escapeRegex(match[1])}\\)`, "g"))];
 }
 
 function visibilityOwners(source) {
@@ -83,17 +149,19 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
     } else {
       validateVisibility(source);
     }
-    source = gate(source, "4114442250", "!0/*fp-nav*/", 2);
+    source = gate(source, "4114442250", NAV_MARKER, 2);
     // Both the loader hook and the enablement bridge must agree; changing
     // visibility alone leaves the main process with an empty catalog.
-    return gate(source, "1042620455", "!0/*fp-rc*/", splitBridge ? 1 : 2);
+    return gate(source, "1042620455", REMOTE_MARKER, splitBridge ? 1 : 2);
   }
   if (kind === "catalog") {
     // Only the shared navigation/loader owner: other copies of 1042620455
     // guard computer-use capabilities and must retain their upstream checks.
-    source = gate(source, "4114442250", "!0/*fp-nav*/", 2);
-    return gate(source, "1042620455", "!0/*fp-rc*/", 1);
+    source = gate(source, "4114442250", NAV_MARKER, 2);
+    return gate(source, "1042620455", REMOTE_MARKER, 1);
   }
+  if (kind === "sharedCatalog") return patchSharedCatalog(source);
+  if (kind === "catalogState") return patchCatalogState(source);
   if (kind === "bridge") {
     // 26.1021 moved the bridge into app-runtime and replaced its IPC call
     // with a service method. Leave loading and one-to-one pairing unchanged.
@@ -111,7 +179,7 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
           `\\.setRemoteControlEnabled\\(\\{enabled:${IDENT},oneToOnePairingInAppEnabled:${IDENT}\\}\\)`).test(owner)) {
       fail("remote catalog service bridge contract changed");
     }
-    return source.slice(0, start) + gate(owner, "1042620455", "!0/*fp-rc*/", 1) + source.slice(end);
+    return source.slice(0, start) + gate(owner, "1042620455", REMOTE_MARKER, 1) + source.slice(end);
   }
   if (kind === "visibility") {
     // 26.924.50649 extracted this function from app-initial. Validate its
@@ -122,9 +190,9 @@ function patchSource(kind, source, { splitVisibility, splitBridge }) {
   if (splitVisibility && !source.includes(`from"./${splitVisibility}"`)) {
     fail("settings no longer imports the remote-control visibility bundle");
   }
-  const owners = [...source.matchAll(new RegExp(`(${IDENT})=${CALL}\\(([\`\"])782640499\\2\\)`, "g"))];
+  const owners = settingsGateOwners(source, kind === "sharedSettings");
   if (owners.length !== 1) fail("outbound tab gate owner changed");
-  const owner = owners[0][1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const owner = escapeRegex(owners[0][1]);
   const pattern = new RegExp(`(${IDENT}=)!(?:${owner}|0) *(?=,${IDENT}=(?:${IDENT}==null|null==${IDENT}))`, "g");
   const matches = [...source.matchAll(pattern)];
   if (matches.length !== 1) fail("outbound tab gate consumer changed");
@@ -169,23 +237,38 @@ function hash(bytes) {
 }
 
 function rspackTargets(fd, files, dataOffset) {
-  const owners = { catalog: [], bridge: [], settings: [], visibility: [] };
+  const owners = { catalog: [], sharedCatalog: [], bridge: [], settings: [], sharedSettings: [], visibility: [] };
+  const sharedCatalog = new RegExp(CATALOG_BINDINGS);
   for (const file of files.filter(file => /^webview\/assets\/async\/\d+\.[a-f\d]+\.js$/.test(file.path))) {
     const source = readEntry(fd, file, dataOffset).original.toString("utf8");
-    if (source.includes('"4114442250"') || source.includes("/*fp-nav*/")) owners.catalog.push(file);
+    if (sharedCatalog.test(source)) {
+      owners.sharedCatalog.push(file);
+    } else if (source.includes('"4114442250"') || source.includes(NAV_MARKER)) {
+      owners.catalog.push(file);
+    }
     if (source.includes("[remote-connections/gate-bridge]")) owners.bridge.push(file);
     if (source.includes('"782640499"')) owners.settings.push(file);
+    if (source.includes("RemoteConnectionsSettings:")) owners.sharedSettings.push(file);
     if (/function [A-Za-z_$][\w$]*\(\{remoteControlConnectionsState:/.test(source)) owners.visibility.push(file);
   }
-  for (const kind of ["catalog", "bridge", "settings"]) {
+  const splitCatalog = owners.sharedCatalog.length > 0;
+  const required = ["catalog", "bridge", splitCatalog ? "sharedSettings" : "settings"];
+  for (const kind of required) {
     if (owners[kind].length !== 1) fail(`expected one rspack ${kind} bundle, found ${owners[kind].length}`);
   }
   if (owners.visibility.length === 0) fail("remote-control visibility bundles missing");
-  const paths = Object.values(owners).flat().map(file => file.path);
-  if (new Set(paths).size !== paths.length) {
-    fail("overlapping rspack remote-control owners");
+  const roles = [
+    [splitCatalog ? "catalogState" : "catalog", owners.catalog],
+    ["sharedCatalog", owners.sharedCatalog],
+    ["bridge", owners.bridge],
+    [splitCatalog ? "sharedSettings" : "settings", splitCatalog ? owners.sharedSettings : owners.settings],
+    ["visibility", owners.visibility],
+  ];
+  if (!splitCatalog) {
+    const paths = roles.flatMap(([, files]) => files.map(file => file.path));
+    if (new Set(paths).size !== paths.length) fail("overlapping rspack remote-control owners");
   }
-  return Object.entries(owners).flatMap(([kind, matches]) =>
+  return roles.flatMap(([kind, matches]) =>
     matches.map(file => [kind, { test: path => path === file.path }]));
 }
 
@@ -229,7 +312,7 @@ function run() {
       splitBridge = bridgePattern.test(bridgeOwners[0].path);
       if (splitBridge) targets.push(["bridge", bridgePattern]);
     }
-    const writes = [];
+    const selected = new Map();
     for (const [kind, pattern] of targets) {
       let matches = files.filter(file => pattern.test(file.path));
       if (kind === "main") {
@@ -238,9 +321,17 @@ function run() {
             readEntry(fd, file, dataOffset).original.toString("utf8")));
       }
       if (matches.length !== 1) fail(`expected one ${kind} bundle, found ${matches.length}`);
-      const { entry, path } = matches[0];
-      const { original, position } = readEntry(fd, matches[0], dataOffset);
-      const contents = Buffer.from(patchSource(kind, original.toString("utf8"), { splitVisibility, splitBridge }));
+      const [file] = matches;
+      if (!selected.has(file)) selected.set(file, []);
+      selected.get(file).push(kind);
+    }
+    const writes = [];
+    for (const [file, kinds] of selected) {
+      const { entry, path } = file;
+      const { original, position } = readEntry(fd, file, dataOffset);
+      let source = original.toString("utf8");
+      for (const kind of kinds) source = patchSource(kind, source, { splitVisibility, splitBridge });
+      const contents = Buffer.from(source);
       if (contents.length !== original.length) fail(`rewrite changed size: ${path}`);
       const integrity = entry.integrity;
       if (integrity?.algorithm !== "SHA256" || !Number.isSafeInteger(integrity.blockSize) ||
